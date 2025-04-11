@@ -1,0 +1,10 @@
+examples/streamer/CMakeCache.txt
+examples/streamer/CMakeFiles/
+examples/streamer/Makefile
+examples/streamer/cmake_install.cmake
+examples/streamer/streamer
+examples/test/CMakeCache.txt
+examples/test/CMakeFiles/
+examples/test/Makefile
+examples/test/cmake_install.cmake
+examples/test/example
