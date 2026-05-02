@@ -1,0 +1,38 @@
+.TH CALIBRATION_X11 1
+
+.SH NAME
+calibration_x11 \- fullscreen Tobii eye tracker calibration for X11
+
+.SH SYNOPSIS
+.B calibration_x11
+
+.SH DESCRIPTION
+Fullscreen X11 calibration utility for Tobii eye trackers.
+
+Creates a 3x3 calibration mesh and stores the result in:
+
+.B ~/.local/tobii_4c/calx11.conf
+
+Used together with:
+
+.B eye_mouse_x11
+
+Features:
+.IP
+- fullscreen calibration
+.IP
+- dynamic screen resolution
+.IP
+- retry handling
+.IP
+- gaze validation
+.IP
+- standalone operation
+
+.SH FILES
+.TP
+.B calx11.conf
+Calibration mesh configuration.
+
+.SH AUTHOR
+Uwe Niethammer
