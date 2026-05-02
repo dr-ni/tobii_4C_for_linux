@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <unistd.h>
-
+#include <limits.h>
 #include <X11/Xlib.h>
 
 #include <tobii/tobii.h>
@@ -218,32 +218,50 @@ void gaze_cb(
         &gy);
 }
 
+void get_config_path(char* out,size_t size)
+{
+    const char* home = getenv("HOME");
+
+    snprintf(
+        out,
+        size,
+        "%s/.local/tobii_4c/calx11.conf",
+        home ? home : ".");
+}
+
 int main()
 {
-    FILE* f = fopen("calx11.conf","r");
+    char cfg[PATH_MAX];
+    get_config_path(cfg,sizeof(cfg));
+    FILE* f = fopen(cfg,"r");
+    printf("Loading calibration: %s\n",cfg);
 
     if(!f)
     {
         printf("Missing calx11.conf\n");
+        printf("Missing calibration file\n");
         return 1;
     }
+
 
     for(int y=0;y<3;y++)
     {
         for(int x=0;x<3;x++)
         {
-            fscanf(
-                f,
-                "%f %f %f %f",
-                &p[y][x].raw_x,
-                &p[y][x].raw_y,
-                &p[y][x].target_x,
-                &p[y][x].target_y);
+            if(fscanf(
+            f,
+            "%f %f %f %f",
+            &p[y][x].raw_x,
+            &p[y][x].raw_y,
+            &p[y][x].target_x,
+            &p[y][x].target_y) != 4)
+            {
+                printf("Invalid calibration file\n");
+                fclose(f);
+                return 1;
+            }
         }
     }
-
-    fclose(f);
-
     Display* d = XOpenDisplay(NULL);
 
     if(!d)
