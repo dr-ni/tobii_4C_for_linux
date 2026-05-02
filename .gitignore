@@ -8,3 +8,6 @@ examples/test/CMakeFiles/
 examples/test/Makefile
 examples/test/cmake_install.cmake
 examples/test/example
+
+calibration_x11
+eye_mouse_x11
