@@ -1,52 +1,300 @@
-# Tobii 4C for linux
-This repository was created in order to make the Tobii 4C eye tracker compliant with **Systemd**, the modern and most used system initializer among linux distributions. 
+# Tobii 4C for Linux
 
+Standalone Tobii 4C eye tracking support for Linux/X11 with:
 
+* Tobii Engine systemd integration
+* fullscreen X11 calibration
+* standalone eye mouse
+* 3x3 mesh calibration
+* barycentric warp correction
+* adaptive edge reachability
+* smoothing and drift reduction
+* local per-user calibration storage
 
-### Why another 4C installer?
+Tested on Ubuntu-based systems using X11.
 
-As you may already know, [@Eitol](https://github.com/Eitol) kindly provided a [suite](https://github.com/Eitol/tobii_eye_tracker_linux_installer) of scripts for installing and testing the 4C on Ubuntu-like systems, but unfortunately it does not work on my distro (Archlinux), mainly because some of these scripts still rely on **SysVinit**, which has been deprecated in most modern distros. 
+---
 
+# Features
 
+## Tobii Engine integration
 
-### Installing / uninstalling
+The repository contains:
 
-Run the `install.sh` script in the root folder for a system-wide installation of all required services. Please check wether the paths contained in the script match your own (**your are doing this at your own risk**):
+* `tobiiusb.service`
+* `tobii_engine.service`
 
+for proper standalone initialization of the Tobii runtime.
+
+This avoids the need to start:
+
+* TobiiProEyeTrackerManager
+
+before using gaze tracking.
+
+---
+
+# Included tools
+
+## calibration_x11
+
+Fullscreen calibration utility.
+
+Features:
+
+* borderless fullscreen mode
+* no window manager interference
+* 3x3 calibration mesh
+* red/green calibration targets
+* retry handling
+* dynamic screen resolution
+* local calibration storage
+
+Calibration data is stored in:
+
+```text
+~/.local/tobii_4c/calx11.conf
 ```
-chmod u+x install.sh
-./install.sh
+
+---
+
+## eye_mouse_x11
+
+Standalone X11 eye mouse.
+
+Features:
+
+* barycentric mesh warp
+* triangle interpolation
+* adaptive edge correction
+* smoothing
+* drift reduction
+* dynamic screen resolution
+* standalone Tobii Engine support
+
+Uses calibration from:
+
+```text
+~/.local/tobii_4c/calx11.conf
 ```
 
-To uninstall Tobii 4C tools and services (again, **check the paths beforehand**):
+---
 
+# Requirements
+
+Ubuntu packages:
+
+```bash
+sudo apt install \
+libx11-dev \
+build-essential \
+libsqlcipher1
 ```
-chmod u+x uninstall.sh
-./uninstall.sh
+
+Some Ubuntu versions require compatibility symlink:
+
+```bash
+sudo ln -s \
+/lib/x86_64-linux-gnu/libsqlcipher.so.1 \
+/lib/x86_64-linux-gnu/libsqlcipher.so.0
 ```
 
+---
 
+# Installation
 
-### Examples
+## Install Tobii services
 
-There are two examples for testing the installation. One was provided by [@Eitol](), which is available in the subfolder `test`. The other one is a “streamer” app that keeps updating the eye gaze position via UDP sockets at `127.0.0.1:9998`, and your can find it in `streamer`. Assuming you have cmake, you should be able to compile them with the following:
+Install repository services:
 
+```bash
+chmod +x install.sh
+sudo ./install.sh
 ```
-cd examples/test
-mkdir build && cd build
-cmake ..
+
+---
+
+## Enable services
+
+```bash
+sudo systemctl daemon-reload
+
+sudo systemctl enable tobiiusb
+sudo systemctl enable tobii_engine
+
+sudo systemctl start tobiiusb
+sudo systemctl start tobii_engine
+```
+
+---
+
+# Verify services
+
+```bash
+systemctl status tobiiusb
+systemctl status tobii_engine
+```
+
+Expected:
+
+```text
+active (running)
+```
+
+---
+
+# Build
+
+## Build all
+
+```bash
 make
-./example
 ```
 
+---
 
+## Install binaries and man pages
 
+```bash
+sudo make install
+```
+
+Installed binaries:
+
+```text
+/usr/local/bin/calibration_x11
+/usr/local/bin/eye_mouse_x11
+```
+
+Installed man pages:
+
+```text
+man calibration_x11
+man eye_mouse_x11
+```
+
+---
+
+# Calibration
+
+Run fullscreen calibration:
+
+```bash
+calibration_x11
+```
+
+or locally:
+
+```bash
+./calibration_x11
+```
+
+The calibration file is automatically written to:
+
+```text
+~/.local/tobii_4c/calx11.conf
+```
+
+---
+
+# Eye mouse
+
+Start the standalone eye mouse:
+
+```bash
+eye_mouse_x11
+```
+
+or locally:
+
+```bash
+./eye_mouse_x11
+```
+
+---
+
+# Recalibration
+
+If cursor accuracy becomes worse:
+
+```bash
+calibration_x11
+```
+
+again.
+
+---
+
+# Clean build
+
+```bash
+make clean
+```
+
+---
+
+# Uninstall
+
+```bash
+sudo make uninstall
+```
+
+Repository uninstall:
+
+```bash
+chmod +x uninstall.sh
+sudo ./uninstall.sh
+```
+
+---
+
+# Notes
+
+## X11 required
+
+Current implementation uses:
+
+* XWarpPointer
+* X11 fullscreen calibration
+
+and therefore requires:
+
+```text
+X11 session
+```
+
+Wayland is currently unsupported.
+
+---
+
+## Tobii Engine warnings
+
+You may see warnings such as:
+
+```text
+Bad key!
+ODIN_ERROR_INTERNAL
+```
+
+inside `tobii_engine.service` logs.
+
+These are typically related to:
+
+* telemetry
+* licensing
+* cloud components
+
+and usually do not affect local gaze tracking.
+
+---
 ##### Disclaimer
 
 I do not have any relationship with Tobii and I do not own the libraries and the tools provided here. As far as I know, they have been made [publicly available](https://developer.tobii.com/community/forums/topic/tobii-4c-eye-tracker-on-linux/) by Tobii and you should check with them about licensing.
 
-
-
 ##### Acknowledgments
 
-Special thanks to [@Eitol](https://github.com/Eitol) for putting together all the necessary tools from Tobii.
+Special thanks to:
+* [@Ejohngebbie](https://github.com/johngebbie) for builing the previous tobii_4C_for_linux project
+* [@Eitol](https://github.com/Eitol) for putting together all the necessary tools from Tobii.
+* Tobii for making Linux Tobii experimentation possible.
+
