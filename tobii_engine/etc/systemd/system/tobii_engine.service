@@ -1,11 +1,12 @@
 [Unit]
-Description=Tobii Engine Service
-After=network.target
+Description=Tobii Eye Tracker Engine
+Requires=tobiiusb.service
+After=tobiiusb.service
 
 [Service]
 Type=simple
 ExecStart=/usr/share/tobii_engine/tobii_engine --daemonize
-Restart=on-abort
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
