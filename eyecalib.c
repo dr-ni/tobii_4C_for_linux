@@ -1,10 +1,22 @@
-/* calibration_x11.c */
+/*
+gcc eyecalib.c -o eyecalib \
+-O2 -Wall -Wextra \
+-I/usr/include \
+-L/usr/lib/tobii \
+-Wl,-rpath,/usr/lib/tobii \
+-ltobii_stream_engine \
+-lX11 -lm
+*/
+
+#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <math.h>
+#include <string.h>
 #include <limits.h>
+#include <sys/stat.h>
+#include <math.h>
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -14,6 +26,11 @@
 
 #define POINTS 9
 #define SAMPLE_COUNT 250
+
+#define TARGET_OUTER 22
+#define TARGET_MIDDLE 20
+#define TARGET_INNER 6
+#define TARGET_CROSS 36
 
 #define MAX_RETRIES 3
 #define MIN_VALID_SAMPLES 80
@@ -26,22 +43,44 @@ typedef struct
     float target_x;
     float target_y;
 
-} calib_point_t;
+} point_t;
 
-calib_point_t points[POINTS] =
+typedef struct
 {
-    {0,0,0.1f,0.1f},
-    {0,0,0.5f,0.1f},
-    {0,0,0.9f,0.1f},
+    int version;
 
-    {0,0,0.1f,0.5f},
-    {0,0,0.5f,0.5f},
-    {0,0,0.9f,0.5f},
+    float sensor_offset_x;
+    float sensor_offset_y;
 
-    {0,0,0.1f,0.9f},
-    {0,0,0.5f,0.9f},
-    {0,0,0.9f,0.9f}
+    float screen_distance;
+    float screen_tilt;
+
+    float gaze_smooth;
+    float cursor_smooth;
+
+    float edge_zone;
+    float edge_power;
+
+} runtime_config_t;
+
+runtime_config_t cfg =
+{
+    .version = 2,
+
+    .sensor_offset_x = 0.0f,
+    .sensor_offset_y = 0.0f,
+
+    .screen_distance = 63.0f,
+    .screen_tilt = 0.0f,
+
+    .gaze_smooth = 0.12f,
+    .cursor_smooth = 0.22f,
+
+    .edge_zone = 0.08f,
+    .edge_power = 1.35f
 };
+
+point_t p[3][3];
 
 float gx=0.5f;
 float gy=0.5f;
@@ -59,7 +98,94 @@ void get_config_path(char* out,size_t size)
         home ? home : ".");
 }
 
-void url_cb(const char* url, void* data)
+int import_tobii_db()
+{
+    const char* db =
+        "/var/lib/tobii/da-setups.db";
+
+    FILE* f = fopen(db,"r");
+
+    if(!f)
+        return 0;
+
+    char line[2048];
+
+    while(fgets(line,sizeof(line),f))
+    {
+        if(strstr(line,"DisplayArea"))
+        {
+            cfg.sensor_offset_x = 0.002f;
+            cfg.sensor_offset_y = -0.003f;
+        }
+    }
+
+    fclose(f);
+
+    return 1;
+}
+
+void save_config(const char* path)
+{
+    FILE* f = fopen(path,"w");
+
+    if(!f)
+        return;
+
+    fprintf(f,"version %d\n",cfg.version);
+
+    fprintf(f,
+        "sensor_offset_x %.6f\n",
+        cfg.sensor_offset_x);
+
+    fprintf(f,
+        "sensor_offset_y %.6f\n",
+        cfg.sensor_offset_y);
+
+    fprintf(f,
+        "screen_distance %.3f\n",
+        cfg.screen_distance);
+
+    fprintf(f,
+        "screen_tilt %.3f\n",
+        cfg.screen_tilt);
+
+    fprintf(f,
+        "gaze_smooth %.3f\n",
+        cfg.gaze_smooth);
+
+    fprintf(f,
+        "cursor_smooth %.3f\n",
+        cfg.cursor_smooth);
+
+    fprintf(f,
+        "edge_zone %.3f\n",
+        cfg.edge_zone);
+
+    fprintf(f,
+        "edge_power %.3f\n",
+        cfg.edge_power);
+
+    fprintf(f,
+        "# calibration\n");
+
+    for(int y=0;y<3;y++)
+    {
+        for(int x=0;x<3;x++)
+        {
+            fprintf(
+                f,
+                "%.6f %.6f %.6f %.6f\n",
+                p[y][x].raw_x,
+                p[y][x].raw_y,
+                p[y][x].target_x,
+                p[y][x].target_y);
+        }
+    }
+
+    fclose(f);
+}
+
+void url_cb(const char* url,void* data)
 {
     snprintf((char*)data,256,"%s",url);
 }
@@ -70,11 +196,26 @@ void gaze_cb(
 {
     (void)user_data;
 
+    valid = 0;
+
     if(g->validity != TOBII_VALIDITY_VALID)
         return;
 
-    gx = g->position_xy[0];
-    gy = g->position_xy[1];
+    if(g->position_xy[0] < 0.0f ||
+       g->position_xy[0] > 1.0f ||
+       g->position_xy[1] < 0.0f ||
+       g->position_xy[1] > 1.0f)
+    {
+        return;
+    }
+
+    gx =
+        g->position_xy[0] +
+        cfg.sensor_offset_x;
+
+    gy =
+        g->position_xy[1] +
+        cfg.sensor_offset_y;
 
     valid = 1;
 }
@@ -83,37 +224,99 @@ void draw_target(
     Display* d,
     Window w,
     GC gc,
+    Colormap cmap,
     int x,
-    int y)
+    int y,
+    int active)
 {
+    XColor red,green,white,gray;
+
+    XParseColor(d,cmap,"#ff3030",&red);
+    XAllocColor(d,cmap,&red);
+
+    XParseColor(d,cmap,"#30ff30",&green);
+    XAllocColor(d,cmap,&green);
+
+    XParseColor(d,cmap,"#ffffff",&white);
+    XAllocColor(d,cmap,&white);
+
+    XParseColor(d,cmap,"#808080",&gray);
+    XAllocColor(d,cmap,&gray);
+
     XClearWindow(d,w);
+
+    XSetForeground(d,gc,gray.pixel);
+
+    XDrawLine(
+        d,
+        w,
+        gc,
+        x - TARGET_CROSS,
+        y,
+        x + TARGET_CROSS,
+        y);
+
+    XDrawLine(
+        d,
+        w,
+        gc,
+        x,
+        y - TARGET_CROSS,
+        x,
+        y + TARGET_CROSS);
+
+    XSetForeground(d,gc,white.pixel);
 
     XFillArc(
         d,
         w,
         gc,
-        x-20,
-        y-20,
-        40,
-        40,
+        x - TARGET_OUTER,
+        y - TARGET_OUTER,
+        TARGET_OUTER*2,
+        TARGET_OUTER*2,
+        0,
+        360*64);
+
+    XSetForeground(
+        d,
+        gc,
+        BlackPixel(d,DefaultScreen(d)));
+
+    XFillArc(
+        d,
+        w,
+        gc,
+        x - TARGET_MIDDLE,
+        y - TARGET_MIDDLE,
+        TARGET_MIDDLE*2,
+        TARGET_MIDDLE*2,
+        0,
+        360*64);
+
+    XSetForeground(
+        d,
+        gc,
+        active ? green.pixel : red.pixel);
+
+    XFillArc(
+        d,
+        w,
+        gc,
+        x - TARGET_INNER,
+        y - TARGET_INNER,
+        TARGET_INNER*2,
+        TARGET_INNER*2,
         0,
         360*64);
 
     XFlush(d);
 }
 
-void cleanup(
-    Display* d,
-    Window w)
-{
-    XUngrabPointer(d,CurrentTime);
-    XUngrabKeyboard(d,CurrentTime);
-
-    XDestroyWindow(d,w);
-}
-
 int main()
 {
+    import_tobii_db();
+
     Display* d = XOpenDisplay(NULL);
 
     if(!d)
@@ -124,10 +327,8 @@ int main()
 
     int screen = DefaultScreen(d);
 
-    int W = DisplayWidth(d, screen);
-    int H = DisplayHeight(d, screen);
-
-    printf("Screen: %dx%d\n",W,H);
+    int W = DisplayWidth(d,screen);
+    int H = DisplayHeight(d,screen);
 
     Window root = RootWindow(d,screen);
 
@@ -135,7 +336,7 @@ int main()
 
     attr.override_redirect = True;
 
-    Window w = XCreateWindow(
+    Window win = XCreateWindow(
         d,
         root,
         0,
@@ -149,18 +350,18 @@ int main()
         CWOverrideRedirect,
         &attr);
 
-    XMapRaised(d,w);
+    XMapRaised(d,win);
 
     XSetWindowBackground(
         d,
-        w,
+        win,
         BlackPixel(d,screen));
 
-    XClearWindow(d,w);
+    XClearWindow(d,win);
 
     XGrabKeyboard(
         d,
-        w,
+        win,
         True,
         GrabModeAsync,
         GrabModeAsync,
@@ -168,139 +369,126 @@ int main()
 
     XGrabPointer(
         d,
-        w,
+        win,
         True,
         ButtonPressMask,
         GrabModeAsync,
         GrabModeAsync,
-        w,
+        win,
         None,
         CurrentTime);
 
     XFlush(d);
 
-    GC gc = XCreateGC(d,w,0,NULL);
+    GC gc = XCreateGC(d,win,0,NULL);
 
-    XSetForeground(
-        d,
-        gc,
-        WhitePixel(d,screen));
+    Colormap cmap =
+        DefaultColormap(d,screen);
+
+    float targets[9][2] =
+    {
+        {0.05f,0.05f},
+        {0.50f,0.05f},
+        {0.95f,0.05f},
+
+        {0.05f,0.50f},
+        {0.50f,0.50f},
+        {0.95f,0.50f},
+
+        {0.05f,0.95f},
+        {0.50f,0.95f},
+        {0.95f,0.95f}
+    };
 
     tobii_api_t* api;
-
-    tobii_error_t err =
-        tobii_api_create(&api,NULL,NULL);
-
-    if(err != TOBII_ERROR_NO_ERROR)
-    {
-        printf("tobii_api_create failed\n");
-
-        cleanup(d,w);
-
-        return 1;
-    }
+    tobii_device_t* dev;
 
     char url[256]={0};
+
+    if(tobii_api_create(
+        &api,
+        NULL,
+        NULL) != TOBII_ERROR_NO_ERROR)
+    {
+        printf("tobii_api_create failed\n");
+        return 1;
+    }
 
     tobii_enumerate_local_device_urls(
         api,
         url_cb,
         url);
 
-    if(url[0] == 0)
+    if(strlen(url)==0)
     {
         printf("No Tobii device found\n");
-
-        cleanup(d,w);
-
-        tobii_api_destroy(api);
-
         return 1;
     }
 
-    printf("Using device: %s\n",url);
-
-    tobii_device_t* dev;
-
-    err = tobii_device_create(api,url,&dev);
-
-    if(err != TOBII_ERROR_NO_ERROR)
+    if(tobii_device_create(
+        api,
+        url,
+        &dev) != TOBII_ERROR_NO_ERROR)
     {
-        printf(
-            "tobii_device_create failed: %d\n",
-            err);
-
-        cleanup(d,w);
-
-        tobii_api_destroy(api);
-
+        printf("tobii_device_create failed\n");
         return 1;
     }
 
-    err = tobii_gaze_point_subscribe(
+    tobii_gaze_point_subscribe(
         dev,
         gaze_cb,
         NULL);
 
-    if(err != TOBII_ERROR_NO_ERROR)
-    {
-        printf(
-            "gaze subscribe failed: %d\n",
-            err);
+    printf("Calibration starting\n");
 
-        tobii_device_destroy(dev);
+    printf(
+        "Screen %dx%d smooth=%.3f cursor=%.3f edge=%.3f\n",
+        W,
+        H,
+        cfg.gaze_smooth,
+        cfg.cursor_smooth,
+        cfg.edge_zone);
 
-        cleanup(d,w);
-
-        tobii_api_destroy(api);
-
-        return 1;
-    }
-
-    if(system("mkdir -p ~/.local/tobii_4c") != 0)
-    {
-        printf("Failed to create config directory\n");
-        tobii_gaze_point_unsubscribe(dev);
-        tobii_device_destroy(dev);
-        cleanup(d,w);
-        tobii_api_destroy(api);
-        return 1;
-    }
-    
-    char cfg[PATH_MAX];
-    get_config_path(cfg,sizeof(cfg));
-    printf("Saving calibration: %s\n",cfg);
-    FILE* f = fopen(cfg,"w");
-
-    if(!f)
-    {
-        printf("Cannot write calibration file\n");
-        tobii_gaze_point_unsubscribe(dev);
-        tobii_device_destroy(dev);
-        cleanup(d,w);
-        tobii_api_destroy(api);
-        return 1;
-    }
-
-    printf("Calibration starting...\n");
+    sleep(1);
 
     for(int i=0;i<POINTS;i++)
     {
-        int tx = points[i].target_x * W;
-        int ty = points[i].target_y * H;
+        p[i/3][i%3].target_x = targets[i][0];
+        p[i/3][i%3].target_y = targets[i][1];
 
-        draw_target(d,w,gc,tx,ty);
+        int px = targets[i][0] * W;
+        int py = targets[i][1] * H;
+
+        draw_target(
+            d,
+            win,
+            gc,
+            cmap,
+            px,
+            py,
+            0);
+
+        printf(
+            "Point %d/%d : %.2f %.2f\n",
+            i+1,
+            POINTS,
+            targets[i][0],
+            targets[i][1]);
 
         sleep(2);
+
+        valid = 0;
+
+        usleep(300000);
 
         float sx=0;
         float sy=0;
 
-        int retries=0;
         int success=0;
-        int final_count=0;
 
-        while(retries < MAX_RETRIES)
+        for(int retry=0;
+            retry<MAX_RETRIES;
+            retry++)
         {
             sx=0;
             sy=0;
@@ -308,76 +496,108 @@ int main()
             int count=0;
             int loops=0;
 
-            valid=0;
-
             while(count < SAMPLE_COUNT &&
                   loops < SAMPLE_COUNT*8)
             {
+                valid=0;
+
                 tobii_device_process_callbacks(dev);
 
                 if(valid)
                 {
                     sx += gx;
                     sy += gy;
+
                     count++;
+
+                    printf(
+                        "\rSamples %3d/%3d gaze %.3f %.3f   ",
+                        count,
+                        SAMPLE_COUNT,
+                        gx,
+                        gy);
+
+                    fflush(stdout);
                 }
 
                 loops++;
+
                 usleep(4000);
             }
 
+            printf("\n");
+
             if(count >= MIN_VALID_SAMPLES)
             {
+                p[i/3][i%3].raw_x =
+                    sx / count;
+
+                p[i/3][i%3].raw_y =
+                    sy / count;
+
                 success=1;
-                final_count=count;
+
                 break;
             }
 
-            retries++;
             printf(
-                "Point %d failed (%d/%d)\n",
-                i+1,
-                retries,
+                "Retry %d/%d\n",
+                retry+1,
                 MAX_RETRIES);
         }
 
         if(!success)
         {
             printf(
-                "Calibration aborted after %d failed attempts\n",
-                MAX_RETRIES);
-            fclose(f);
-            tobii_gaze_point_unsubscribe(dev);
-            tobii_device_destroy(dev);
-            cleanup(d,w);
-            tobii_api_destroy(api);
+                "Calibration failed\n");
+
             return 1;
         }
 
-        points[i].raw_x = sx / final_count;
-        points[i].raw_y = sy / final_count;
-
-        fprintf(
-            f,
-            "%.6f %.6f %.6f %.6f\n",
-            points[i].raw_x,
-            points[i].raw_y,
-            points[i].target_x,
-            points[i].target_y);
+        draw_target(
+            d,
+            win,
+            gc,
+            cmap,
+            px,
+            py,
+            1);
 
         printf(
-            "RAW %.6f %.6f -> TARGET %.1f %.1f\n",
-            points[i].raw_x,
-            points[i].raw_y,
-            points[i].target_x,
-            points[i].target_y);
+            "RAW %.6f %.6f -> TARGET %.2f %.2f ERR %.4f %.4f\n",
+            p[i/3][i%3].raw_x,
+            p[i/3][i%3].raw_y,
+            p[i/3][i%3].target_x,
+            p[i/3][i%3].target_y,
+            p[i/3][i%3].raw_x -
+            p[i/3][i%3].target_x,
+            p[i/3][i%3].raw_y -
+            p[i/3][i%3].target_y);
+
+        usleep(350000);
     }
 
-    fclose(f);
+    char cfgpath[PATH_MAX];
+
+    get_config_path(
+        cfgpath,
+        sizeof(cfgpath));
+
+    save_config(cfgpath);
+
+    printf(
+        "Saved calibration: %s\n",
+        cfgpath);
+
     tobii_gaze_point_unsubscribe(dev);
+
     tobii_device_destroy(dev);
-    cleanup(d,w);
+
     tobii_api_destroy(api);
-    printf("Saved calibration\n");
+
+    XDestroyWindow(d,win);
+
+    XCloseDisplay(d);
+
     return 0;
 }

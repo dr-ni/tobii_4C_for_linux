@@ -1,38 +1,68 @@
-.TH CALIBRATION_X11 1
+
+---
+
+## `eyecalib.1`
+
+```roff
+.TH EYECALIB 1 "May 2026" "tobii4c" "User Commands"
 
 .SH NAME
-calibration_x11 \- fullscreen Tobii eye tracker calibration for X11
+eyecalib \- fullscreen Tobii eye tracker calibration utility for X11
 
 .SH SYNOPSIS
-.B calibration_x11
+.B eyecalib
 
 .SH DESCRIPTION
-Fullscreen X11 calibration utility for Tobii eye trackers.
+.B eyecalib
+creates a fullscreen calibration environment for supported
+Tobii Eye Tracker 4C devices under X11.
 
-Creates a 3x3 calibration mesh and stores the result in:
+The utility generates a calibration mesh used for gaze correction,
+adaptive edge compensation and realtime pointer mapping.
+
+The generated calibration file is stored in:
 
 .B ~/.local/tobii_4c/calx11.conf
 
-Used together with:
+The calibration file is later used by
+.BR eyemouse (1)
+for gaze correction and pointer control.
 
-.B eye_mouse_x11
+.SH FEATURES
+.IP \[bu] 2
+Fullscreen borderless calibration
 
-Features:
-.IP
-- fullscreen calibration
-.IP
-- dynamic screen resolution
-.IP
-- retry handling
-.IP
-- gaze validation
-.IP
-- standalone operation
+.IP \[bu]
+3x3 calibration mesh
+
+.IP \[bu]
+Barycentric mesh warp preparation
+
+.IP \[bu]
+Adaptive edge reachability
+
+.IP \[bu]
+Realtime gaze validation
+
+.IP \[bu]
+Dynamic screen resolution handling
+
+.IP \[bu]
+Retry and recalibration support
+
+.IP \[bu]
+Local per-user calibration storage
+
+.IP \[bu]
+Low latency tracking preparation
 
 .SH FILES
 .TP
-.B calx11.conf
+.B ~/.local/tobii_4c/calx11.conf
 Calibration mesh configuration.
+
+.SH SEE ALSO
+.BR eyemouse (1)
 
 .SH AUTHOR
 Uwe Niethammer
