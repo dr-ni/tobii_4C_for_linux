@@ -98,96 +98,15 @@ void get_config_path(char* out,size_t size)
         home ? home : ".");
 }
 
-int import_tobii_db()
+void url_cb(
+    const char* url,
+    void* user_data)
 {
-    const char* db =
-        "/var/lib/tobii/da-setups.db";
-
-    FILE* f = fopen(db,"r");
-
-    if(!f)
-        return 0;
-
-    char line[2048];
-
-    while(fgets(line,sizeof(line),f))
-    {
-        if(strstr(line,"DisplayArea"))
-        {
-            cfg.sensor_offset_x = 0.002f;
-            cfg.sensor_offset_y = -0.003f;
-        }
-    }
-
-    fclose(f);
-
-    return 1;
-}
-
-void save_config(const char* path)
-{
-    FILE* f = fopen(path,"w");
-
-    if(!f)
-        return;
-
-    fprintf(f,"version %d\n",cfg.version);
-
-    fprintf(f,
-        "sensor_offset_x %.6f\n",
-        cfg.sensor_offset_x);
-
-    fprintf(f,
-        "sensor_offset_y %.6f\n",
-        cfg.sensor_offset_y);
-
-    fprintf(f,
-        "screen_distance %.3f\n",
-        cfg.screen_distance);
-
-    fprintf(f,
-        "screen_tilt %.3f\n",
-        cfg.screen_tilt);
-
-    fprintf(f,
-        "gaze_smooth %.3f\n",
-        cfg.gaze_smooth);
-
-    fprintf(f,
-        "cursor_smooth %.3f\n",
-        cfg.cursor_smooth);
-
-    fprintf(f,
-        "edge_zone %.3f\n",
-        cfg.edge_zone);
-
-    fprintf(f,
-        "edge_power %.3f\n",
-        cfg.edge_power);
-
-    fprintf(f,
-        "# calibration\n");
-
-    for(int y=0;y<3;y++)
-    {
-        for(int x=0;x<3;x++)
-        {
-            fprintf(
-                f,
-                "%.6f %.6f %.6f %.6f\n",
-                p[y][x].raw_x,
-                p[y][x].raw_y,
-                p[y][x].target_x,
-                p[y][x].target_y);
-        }
-    }
-
-    fclose(f);
-}
-
-void url_cb(const char* url,void* data)
-{
-    snprintf((char*)data,256,"%s",url);
+    snprintf(
+        (char*)user_data,
+        256,
+        "%s",
+        url);
 }
 
 void gaze_cb(
@@ -220,6 +139,258 @@ void gaze_cb(
     valid = 1;
 }
 
+int import_tobii_db()
+{
+    char db[PATH_MAX];
+
+    snprintf(
+        db,
+        sizeof(db),
+        "%s/.config/TobiiProEyeTrackerManager/db/da-setups.db",
+        getenv("HOME"));
+
+    printf(
+        "Opening Tobii DB: %s\n",
+        db);
+
+    FILE* f = fopen(db,"r");
+
+    if(!f)
+    {
+        printf(
+            "No Tobii DB bootstrap found\n");
+
+        return 0;
+    }
+
+    char line[8192];
+
+    int found=0;
+
+    while(fgets(line,sizeof(line),f))
+    {
+        if(!(strstr(line,"\"name\":\"NucBox\"") ||
+             strstr(line,"\"name\":\"uwe1\"")))
+        {
+            continue;
+        }
+
+        printf(
+            "\n[DB ACTIVE PROFILE]\n%s\n",
+            line);
+
+        found=1;
+
+        if(strstr(line,"\"trackerPlacement\":\"under\""))
+        {
+            printf(
+                "[DB] tracker placement: UNDER\n");
+
+            cfg.sensor_offset_y =
+                -0.004f;
+        }
+
+        char* a =
+            strstr(
+                line,
+                "\"tracker\":{\"angle\":");
+
+        if(a)
+        {
+            float angle=0.0f;
+
+            sscanf(
+                a,
+                "\"tracker\":{\"angle\":%f",
+                &angle);
+
+            printf(
+                "[DB] tracker angle: %.2f deg\n",
+                angle);
+
+            cfg.screen_tilt =
+                angle;
+        }
+
+        char* w =
+            strstr(line,"\"width\":");
+
+        if(w)
+        {
+            float width_mm=0.0f;
+
+            sscanf(
+                w,
+                "\"width\":%f",
+                &width_mm);
+
+            printf(
+                "[DB] display width: %.2f mm\n",
+                width_mm);
+        }
+
+        char* h =
+            strstr(line,"\"height\":");
+
+        if(h)
+        {
+            float height_mm=0.0f;
+
+            sscanf(
+                h,
+                "\"height\":%f",
+                &height_mm);
+
+            printf(
+                "[DB] display height: %.2f mm\n",
+                height_mm);
+        }
+
+        float blx,bly,blz;
+        float tlx,tly,tlz;
+        float trx,try_,trz;
+
+        int matched =
+            sscanf(
+                line,
+                "%*[^[][%f,%f,%f],\"topLeft\":[%f,%f,%f],\"topRight\":[%f,%f,%f]",
+                &blx,&bly,&blz,
+                &tlx,&tly,&tlz,
+                &trx,&try_,&trz);
+
+        if(matched == 9)
+        {
+            printf(
+                "[DB] physical geometry parsed\n");
+
+            printf(
+                "     bottomLeft : %.2f %.2f %.2f\n",
+                blx,bly,blz);
+
+            printf(
+                "     topLeft    : %.2f %.2f %.2f\n",
+                tlx,tly,tlz);
+
+            printf(
+                "     topRight   : %.2f %.2f %.2f\n",
+                trx,try_,trz);
+
+            float screen_skew =
+                (trz - blz);
+
+            printf(
+                "[DB] screen skew z: %.2f\n",
+                screen_skew);
+
+            cfg.sensor_offset_y =
+                -(screen_skew / 5000.0f);
+
+            printf(
+                "[DB] derived sensor_offset_y = %.5f\n",
+                cfg.sensor_offset_y);
+        }
+    }
+
+    fclose(f);
+
+    if(!found)
+    {
+        printf(
+            "[DB] no matching local profile found\n");
+
+        return 0;
+    }
+
+    printf(
+        "\n[DB] bootstrap import complete\n");
+
+    printf(
+        "[DB] runtime config:\n");
+
+    printf(
+        "     sensor_offset_x = %.5f\n",
+        cfg.sensor_offset_x);
+
+    printf(
+        "     sensor_offset_y = %.5f\n",
+        cfg.sensor_offset_y);
+
+    printf(
+        "     screen_tilt     = %.2f\n",
+        cfg.screen_tilt);
+
+    return 1;
+}
+
+void save_config(
+    const char* path)
+{
+    FILE* f = fopen(path,"w");
+
+    if(!f)
+        return;
+
+    fprintf(f,"version %d\n",cfg.version);
+
+    fprintf(
+        f,
+        "sensor_offset_x %.6f\n",
+        cfg.sensor_offset_x);
+
+    fprintf(
+        f,
+        "sensor_offset_y %.6f\n",
+        cfg.sensor_offset_y);
+
+    fprintf(
+        f,
+        "screen_distance %.3f\n",
+        cfg.screen_distance);
+
+    fprintf(
+        f,
+        "screen_tilt %.3f\n",
+        cfg.screen_tilt);
+
+    fprintf(
+        f,
+        "gaze_smooth %.3f\n",
+        cfg.gaze_smooth);
+
+    fprintf(
+        f,
+        "cursor_smooth %.3f\n",
+        cfg.cursor_smooth);
+
+    fprintf(
+        f,
+        "edge_zone %.3f\n",
+        cfg.edge_zone);
+
+    fprintf(
+        f,
+        "edge_power %.3f\n",
+        cfg.edge_power);
+
+    fprintf(f,"# calibration\n");
+
+    for(int y=0;y<3;y++)
+    {
+        for(int x=0;x<3;x++)
+        {
+            fprintf(
+                f,
+                "%.6f %.6f %.6f %.6f\n",
+                p[y][x].raw_x,
+                p[y][x].raw_y,
+                p[y][x].target_x,
+                p[y][x].target_y);
+        }
+    }
+
+    fclose(f);
+}
+
 void draw_target(
     Display* d,
     Window w,
@@ -245,32 +416,37 @@ void draw_target(
 
     XClearWindow(d,w);
 
+    XSetLineAttributes(
+        d,
+        gc,
+        1,
+        LineSolid,
+        CapRound,
+        JoinRound);
+
     XSetForeground(d,gc,gray.pixel);
 
     XDrawLine(
-        d,
-        w,
-        gc,
+        d,w,gc,
         x - TARGET_CROSS,
         y,
         x + TARGET_CROSS,
         y);
 
     XDrawLine(
-        d,
-        w,
-        gc,
+        d,w,gc,
         x,
         y - TARGET_CROSS,
         x,
         y + TARGET_CROSS);
 
-    XSetForeground(d,gc,white.pixel);
+    XSetForeground(
+        d,
+        gc,
+        white.pixel);
 
     XFillArc(
-        d,
-        w,
-        gc,
+        d,w,gc,
         x - TARGET_OUTER,
         y - TARGET_OUTER,
         TARGET_OUTER*2,
@@ -284,9 +460,7 @@ void draw_target(
         BlackPixel(d,DefaultScreen(d)));
 
     XFillArc(
-        d,
-        w,
-        gc,
+        d,w,gc,
         x - TARGET_MIDDLE,
         y - TARGET_MIDDLE,
         TARGET_MIDDLE*2,
@@ -300,9 +474,7 @@ void draw_target(
         active ? green.pixel : red.pixel);
 
     XFillArc(
-        d,
-        w,
-        gc,
+        d,w,gc,
         x - TARGET_INNER,
         y - TARGET_INNER,
         TARGET_INNER*2,
@@ -325,30 +497,36 @@ int main()
         return 1;
     }
 
-    int screen = DefaultScreen(d);
+    int screen =
+        DefaultScreen(d);
 
-    int W = DisplayWidth(d,screen);
-    int H = DisplayHeight(d,screen);
+    int W =
+        DisplayWidth(d,screen);
 
-    Window root = RootWindow(d,screen);
+    int H =
+        DisplayHeight(d,screen);
+
+    Window root =
+        RootWindow(d,screen);
 
     XSetWindowAttributes attr;
 
     attr.override_redirect = True;
 
-    Window win = XCreateWindow(
-        d,
-        root,
-        0,
-        0,
-        W,
-        H,
-        0,
-        CopyFromParent,
-        InputOutput,
-        CopyFromParent,
-        CWOverrideRedirect,
-        &attr);
+    Window win =
+        XCreateWindow(
+            d,
+            root,
+            0,
+            0,
+            W,
+            H,
+            0,
+            CopyFromParent,
+            InputOutput,
+            CopyFromParent,
+            CWOverrideRedirect,
+            &attr);
 
     XMapRaised(d,win);
 
@@ -380,7 +558,8 @@ int main()
 
     XFlush(d);
 
-    GC gc = XCreateGC(d,win,0,NULL);
+    GC gc =
+        XCreateGC(d,win,0,NULL);
 
     Colormap cmap =
         DefaultColormap(d,screen);
@@ -410,7 +589,9 @@ int main()
         NULL,
         NULL) != TOBII_ERROR_NO_ERROR)
     {
-        printf("tobii_api_create failed\n");
+        printf(
+            "tobii_api_create failed\n");
+
         return 1;
     }
 
@@ -421,16 +602,24 @@ int main()
 
     if(strlen(url)==0)
     {
-        printf("No Tobii device found\n");
+        printf(
+            "No Tobii device found\n");
+
         return 1;
     }
+
+    printf(
+        "Using device: %s\n",
+        url);
 
     if(tobii_device_create(
         api,
         url,
         &dev) != TOBII_ERROR_NO_ERROR)
     {
-        printf("tobii_device_create failed\n");
+        printf(
+            "tobii_device_create failed\n");
+
         return 1;
     }
 
@@ -439,7 +628,8 @@ int main()
         gaze_cb,
         NULL);
 
-    printf("Calibration starting\n");
+    printf(
+        "Calibration starting\n");
 
     printf(
         "Screen %dx%d smooth=%.3f cursor=%.3f edge=%.3f\n",
@@ -453,11 +643,17 @@ int main()
 
     for(int i=0;i<POINTS;i++)
     {
-        p[i/3][i%3].target_x = targets[i][0];
-        p[i/3][i%3].target_y = targets[i][1];
+        p[i/3][i%3].target_x =
+            targets[i][0];
 
-        int px = targets[i][0] * W;
-        int py = targets[i][1] * H;
+        p[i/3][i%3].target_y =
+            targets[i][1];
+
+        int px =
+            targets[i][0] * W;
+
+        int py =
+            targets[i][1] * H;
 
         draw_target(
             d,
@@ -490,18 +686,53 @@ int main()
             retry<MAX_RETRIES;
             retry++)
         {
-            sx=0;
-            sy=0;
+            sx=0.0f;
+            sy=0.0f;
 
             int count=0;
             int loops=0;
 
             while(count < SAMPLE_COUNT &&
-                  loops < SAMPLE_COUNT*8)
+                  loops < SAMPLE_COUNT*12)
             {
-                valid=0;
+                valid = 0;
 
-                tobii_device_process_callbacks(dev);
+                tobii_error_t err;
+
+                err =
+                    tobii_wait_for_callbacks(
+                        1,
+                        &dev);
+
+                if(err != TOBII_ERROR_NO_ERROR &&
+                   err != TOBII_ERROR_TIMED_OUT)
+                {
+                    printf(
+                        "\n[Tobii] wait failed: %d\n",
+                        err);
+
+                    break;
+                }
+
+                err =
+                    tobii_device_process_callbacks(
+                        dev);
+
+                if(err != TOBII_ERROR_NO_ERROR)
+                {
+                    printf(
+                        "\n[Tobii] process failed: %d\n",
+                        err);
+
+                    break;
+                }
+
+                while(XPending(d))
+                {
+                    XEvent e;
+
+                    XNextEvent(d,&e);
+                }
 
                 if(valid)
                 {
@@ -519,10 +750,21 @@ int main()
 
                     fflush(stdout);
                 }
+                else
+                {
+                    if((loops % 100) == 0)
+                    {
+                        printf(
+                            "\rWaiting for valid gaze frames... %-6d",
+                            loops);
+
+                        fflush(stdout);
+                    }
+                }
 
                 loops++;
 
-                usleep(4000);
+                usleep(2000);
             }
 
             printf("\n");
@@ -537,13 +779,20 @@ int main()
 
                 success=1;
 
+                printf(
+                    "[OK] valid samples: %d\n",
+                    count);
+
                 break;
             }
 
             printf(
-                "Retry %d/%d\n",
+                "Retry %d/%d valid=%d\n",
                 retry+1,
-                MAX_RETRIES);
+                MAX_RETRIES,
+                count);
+
+            sleep(1);
         }
 
         if(!success)

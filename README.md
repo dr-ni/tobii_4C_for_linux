@@ -14,6 +14,7 @@ The project focuses on:
 * low latency tracking
 * realtime filtering
 * adaptive calibration
+* geometry aware gaze mapping
 
 The software is designed primarily for:
 
@@ -28,99 +29,49 @@ Tested primarily on Ubuntu-based Linux systems using X11.
 
 ---
 
-# Features
+# Current Status
 
-## Core tracking
+Implemented:
 
-* realtime gaze tracking
-* binocular eye tracking
-* gaze vector filtering
-* adaptive smoothing
-* drift reduction
-* low latency processing
-* realtime coordinate mapping
-
----
-
-## Head tracking
-
-The tracking pipeline can process:
-
-* head X/Y/Z position
-* pitch
-* yaw
-* roll
-* eye openness
-* movement stability
-
-This enables:
-
-* dynamic gaze correction
-* future head compensated tracking
-* blink detection
-* dwell interaction
-* gaze stability estimation
-
----
-
-## Eye mouse
-
-The included `eyemouse` utility provides:
-
-* eye controlled mouse movement
-* gaze-to-pointer mapping
-* adaptive edge reachability
-* smoothing and stabilization
-* dynamic screen scaling
-* multi-monitor support
-* optional accessibility integration
-
-The eye mouse is optimized for:
-
-* desktop accessibility
-* low effort pointer control
-* reduced jitter
-* improved edge access
-* long-term usage stability
-
----
-
-## Calibration
-
-The included `eyecalib` utility provides:
-
-* fullscreen calibration
-* unmanaged fullscreen mode
-* 3x3 calibration mesh
-* barycentric warp preparation
-* realtime gaze visualization
+* realtime Tobii gaze tracking
+* fullscreen X11 calibration
+* local calibration persistence
 * adaptive edge compensation
-* persistent local calibration storage
+* Tobii geometry bootstrap
+* gaze filtering and smoothing
+* X11 eye mouse integration
+* head pose capable runtime pipeline
 
-Calibration data is stored locally per user.
+Experimental:
+
+* blink click
+* dwell click
+* 3D gaze mapping
+* head compensated tracking
+* barycentric warp refinement
 
 ---
 
-# Architecture
+# Requirements
 
-```text
-Tobii Eye Tracker 4C
-        │
-        ▼
-Tobii Stream Engine
-        │
-        ▼
-tobii4c tracking pipeline
-        │
-        ├── gaze tracking
-        ├── filtering
-        ├── smoothing
-        ├── head pose
-        ├── blink detection
-        ├── calibration warp
-        │
-        ▼
-X11 integration layer
-        │
-        ▼
-Desktop pointer control
+## Runtime
+
+* Linux
+* X11 session
+* Tobii Eye Tracker 4C
+* Tobii Stream Engine runtime
+* Xlib
+
+## Development
+
+* gcc
+* make
+* X11 development headers
+* Tobii Stream Engine SDK
+
+Ubuntu example:
+
+```bash
+sudo apt install \
+    build-essential \
+    libx11-dev

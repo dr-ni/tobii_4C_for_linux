@@ -3,7 +3,7 @@
 sudo systemctl disable tobii_engine.service
 sudo systemctl disable tobiiusb.service
 sudo rm /etc/systemd/system/tobii_engine.service
-sudo rm /etc/systemd/system/tobiiusb.servicie
+sudo rm /etc/systemd/system/tobiiusb.service
 sudo rm -R /usr/local/lib/tobiiusb
 sudo rm /usr/local/sbin/tobiiusbserviced
 
