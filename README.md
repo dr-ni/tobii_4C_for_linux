@@ -2,53 +2,40 @@
 
 Standalone Tobii Eye Tracker 4C support for Linux/X11.
 
-`tobii4c` provides low latency gaze tracking, head pose estimation,
-blink detection and eye controlled mouse interaction for Linux desktops.
+`tobii4c` provides realtime gaze tracking, fullscreen calibration,
+eye controlled mouse interaction and experimental geometry-aware
+3D gaze processing for Linux desktops.
 
 The project focuses on:
 
-* standalone operation
-* X11 integration
-* accessibility
-* assistive interaction
-* low latency tracking
-* realtime filtering
-* adaptive calibration
-* geometry aware gaze mapping
+- accessibility
+- assistive input
+- low latency gaze interaction
+- standalone Linux eye tracking
+- experimental HCI
+- geometry-aware gaze mapping
+- realtime filtering and stabilization
 
-The software is designed primarily for:
+Designed primarily for:
 
-* accessibility workflows
-* hands-free desktop interaction
-* Linux eye tracking research
-* gaze interaction experiments
-* Tobii reverse engineering
-* assistive desktop environments
+- hands-free desktop interaction
+- accessibility workflows
+- Linux eye tracking research
+- assistive desktop environments
+- experimental gaze interaction
 
 Tested primarily on Ubuntu-based Linux systems using X11.
 
 ---
 
-# Current Status
+# Components
 
-Implemented:
-
-* realtime Tobii gaze tracking
-* fullscreen X11 calibration
-* local calibration persistence
-* adaptive edge compensation
-* Tobii geometry bootstrap
-* gaze filtering and smoothing
-* X11 eye mouse integration
-* head pose capable runtime pipeline
-
-Experimental:
-
-* blink click
-* dwell click
-* 3D gaze mapping
-* head compensated tracking
-* barycentric warp refinement
+| Component | Description |
+|---|---|
+| eyemouse | realtime eye-controlled mouse |
+| eyecalib | fullscreen gaze calibration |
+| tobiiusb.service | Tobii USB runtime initialization |
+| tobii_engine.service | Tobii Stream Engine runtime |
 
 ---
 
@@ -56,18 +43,22 @@ Experimental:
 
 ## Runtime
 
-* Linux
-* X11 session
-* Tobii Eye Tracker 4C
-* Tobii Stream Engine runtime
-* Xlib
+Required:
+
+- Linux
+- X11 session
+- Tobii Eye Tracker 4C
+- Tobii Stream Engine runtime
+- X11 libraries
 
 ## Development
 
-* gcc
-* make
-* X11 development headers
-* Tobii Stream Engine SDK
+Required for compilation:
+
+- gcc
+- make
+- libx11-dev
+- Tobii Stream Engine SDK
 
 Ubuntu example:
 
