@@ -1,65 +1,170 @@
-
----
-
-## `eyecalib.1`
-
-```roff
-.TH EYECALIB 1 "May 2026" "tobii4c" "User Commands"
+.TH EYECALIB 1 "2026" "tobii4c" "User Commands"
 
 .SH NAME
-eyecalib \- fullscreen Tobii eye tracker calibration utility for X11
+eyecalib \- fullscreen gaze calibration utility for Tobii Eye Tracker 4C
 
 .SH SYNOPSIS
 .B eyecalib
 
 .SH DESCRIPTION
 .B eyecalib
-creates a fullscreen calibration environment for supported
-Tobii Eye Tracker 4C devices under X11.
+provides fullscreen calibration for the Tobii Eye Tracker 4C
+under Linux/X11.
 
-The utility generates a calibration mesh used for gaze correction,
-adaptive edge compensation and realtime pointer mapping.
+The utility collects gaze samples for a 3x3 calibration mesh
+used by:
 
-The generated calibration file is stored in:
+.B eyemouse
 
-.B ~/.local/tobii_4c/calx11.conf
+Calibration improves:
 
-The calibration file is later used by
-.BR eyemouse (1)
-for gaze correction and pointer control.
+- fullscreen reachability
+- edge precision
+- cursor stability
+- corner access
+- asymmetric distortion correction
 
-.SH FEATURES
-.IP \[bu] 2
-Fullscreen borderless calibration
+.SH CALIBRATION PROCESS
+The calibration process:
 
-.IP \[bu]
-3x3 calibration mesh
+.nf
+fullscreen targets
+    -> gaze sample collection
+    -> sample filtering
+    -> calibration mesh generation
+    -> persistent calibration storage
+.fi
 
-.IP \[bu]
-Barycentric mesh warp preparation
+.SH CALIBRATION TARGETS
+The calibration uses a 3x3 fullscreen target layout:
 
-.IP \[bu]
-Adaptive edge reachability
+.nf
+P00  P01  P02
+P10  P11  P12
+P20  P21  P22
+.fi
 
-.IP \[bu]
-Realtime gaze validation
+Targets are intentionally placed near display borders
+to improve fullscreen reachability.
 
-.IP \[bu]
-Dynamic screen resolution handling
+.SH CALIBRATION STORAGE
+Calibration data is written to:
 
-.IP \[bu]
-Retry and recalibration support
+.nf
+~/.local/tobii_4c/calx11.conf
+.fi
 
-.IP \[bu]
-Local per-user calibration storage
+Example:
 
-.IP \[bu]
-Low latency tracking preparation
+.nf
+0.052524 0.075656 0.050000 0.050000
+.fi
+
+Format:
+
+.nf
+raw_x raw_y target_x target_y
+.fi
+
+.SH CALIBRATION MATHEMATICS
+Each calibration sample stores:
+
+- measured Tobii gaze position
+- expected screen position
+
+Example:
+
+.nf
+0.523789 0.455566 -> 0.500000 0.500000
+.fi
+
+Meaning:
+
+- tracker measured 52.4% horizontal gaze
+- actual target was 50%
+
+The runtime later derives affine correction offsets.
+
+.SH AFFINE MAPPING
+The stable runtime uses affine correction derived from
+calibration samples.
+
+Conceptually:
+
+.nf
+x' = ax + by + c
+y' = dx + ey + f
+.fi
+
+This significantly improves:
+
+- edge reachability
+- fullscreen coverage
+- corner precision
+
+.SH RUNTIME FILTERING
+Calibration performs:
+
+- invalid sample rejection
+- realtime smoothing
+- sample stabilization
+- gaze averaging
+
+This reduces:
+
+- jitter
+- unstable fixation
+- noisy gaze samples
+
+.SH X11 REQUIREMENT
+The calibration utility currently requires:
+
+- X11
+- fullscreen override-redirect windows
+- X11 pointer control
+
+Wayland is unsupported.
+
+Check:
+
+.nf
+$ echo $XDG_SESSION_TYPE
+x11
+.fi
 
 .SH FILES
-.TP
-.B ~/.local/tobii_4c/calx11.conf
-Calibration mesh configuration.
+.nf
+~/.local/tobii_4c/calx11.conf
+.fi
+
+.SH CURRENT STABLE RUNTIME
+The current stable runtime actively uses:
+
+- affine calibration
+- 3x3 calibration mesh
+- X11 cursor mapping
+- realtime smoothing
+
+The following features are experimental or incomplete:
+
+- bootstrap geometry import
+- C12 runtime
+- projective warp
+- head compensated reprojection
+- full 3D geometry correction
+
+.SH EXAMPLE
+Run calibration:
+
+.nf
+$ eyecalib
+.fi
+
+Run eyemouse afterwards:
+
+.nf
+$ eyemouse
+.fi
 
 .SH SEE ALSO
 .BR eyemouse (1)
