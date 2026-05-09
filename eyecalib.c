@@ -102,102 +102,11 @@ void url_cb(
     const char* url,
     void* user_data)
 {
-<<<<<<< HEAD
     snprintf(
         (char*)user_data,
         256,
         "%s",
         url);
-=======
-    const char* db =
-        "/var/lib/tobii/da-setups.db";
-
-    FILE* f = fopen(db,"r");
-
-    if(!f)
-        return 0;
-    fprintf(stderr,"import_tobii_db\n");
-    char line[2048];
-
-    while(fgets(line,sizeof(line),f))
-    {
-        if(strstr(line,"DisplayArea"))
-        {
-            cfg.sensor_offset_x = 0.002f;
-            cfg.sensor_offset_y = -0.003f;
-        }
-    }
-
-    fclose(f);
-
-    return 1;
-}
-
-void save_config(const char* path)
-{
-    FILE* f = fopen(path,"w");
-
-    if(!f)
-        return;
-
-    fprintf(f,"version %d\n",cfg.version);
-
-    fprintf(f,
-        "sensor_offset_x %.6f\n",
-        cfg.sensor_offset_x);
-
-    fprintf(f,
-        "sensor_offset_y %.6f\n",
-        cfg.sensor_offset_y);
-
-    fprintf(f,
-        "screen_distance %.3f\n",
-        cfg.screen_distance);
-
-    fprintf(f,
-        "screen_tilt %.3f\n",
-        cfg.screen_tilt);
-
-    fprintf(f,
-        "gaze_smooth %.3f\n",
-        cfg.gaze_smooth);
-
-    fprintf(f,
-        "cursor_smooth %.3f\n",
-        cfg.cursor_smooth);
-
-    fprintf(f,
-        "edge_zone %.3f\n",
-        cfg.edge_zone);
-
-    fprintf(f,
-        "edge_power %.3f\n",
-        cfg.edge_power);
-
-    fprintf(f,
-        "# calibration\n");
-
-    for(int y=0;y<3;y++)
-    {
-        for(int x=0;x<3;x++)
-        {
-            fprintf(
-                f,
-                "%.6f %.6f %.6f %.6f\n",
-                p[y][x].raw_x,
-                p[y][x].raw_y,
-                p[y][x].target_x,
-                p[y][x].target_y);
-        }
-    }
-
-    fclose(f);
-}
-
-void url_cb(const char* url,void* data)
-{
-    snprintf((char*)data,256,"%s",url);
->>>>>>> 56a1078 (Revert to stable version)
 }
 
 void gaze_cb(
