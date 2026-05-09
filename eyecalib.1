@@ -83,22 +83,15 @@ Meaning:
 - tracker measured 52.4% horizontal gaze
 - actual target was 50%
 
-The runtime later derives affine correction offsets.
+The runtime later derives local barycentric mesh warp correction.
 
-.SH AFFINE MAPPING
-The stable runtime uses affine correction derived from
-calibration samples.
+.SH BARYCENTRIC MESH MAPPING
+The stabtion derived from calibration samples.
 
 Conceptually:
 
 .nf
-x' = ax + by + c
-y' = dx + ey + f
-.fi
-
-This significantly improves:
-
-- edge reachability
+triangle barycentric coordinates\n   achability
 - fullscreen coverage
 - corner precision
 
@@ -140,7 +133,7 @@ x11
 .SH CURRENT STABLE RUNTIME
 The current stable runtime actively uses:
 
-- affine calibration
+- barylation
 - 3x3 calibration mesh
 - X11 cursor mapping
 - realtime smoothing

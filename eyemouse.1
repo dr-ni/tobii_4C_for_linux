@@ -13,15 +13,13 @@ Tobii Eye Tracker 4C under Linux/X11.
 
 The current stable runtime uses:
 
-- affine gaze calibration
+- barycentric triangle mesh calibrationsh calibration
 - 3x3 calibration mesh
 - low latency smoothing
 - X11 cursor control
 - realtime Tobii gaze tracking
 
-The runtime maps gaze coordinates onto desktop cursor coordinates
-using affine calibration correction derived from fullscreen
-calibration samples.
+The runtime maps gaze coordinates onto desktop cursousing barycentric triangle mesh interpolationerpolation derived from fullscreen calibration samples.om fullscreen calibration samples.
 
 .SH REQUIREMENTS
 Required:
@@ -82,15 +80,12 @@ raw Tobii gaze
     -> X11 cursor mapping
     -> XWarpPointer
 .fi
-
-.SH AFFINE CALIBRATION
-The stable runtime performs affine gaze correction.
+e performs local barycentric triangle mesh interpolation.
 
 Conceptually:
 
 .nf
-x' = ax + by + c
-y' = dx + ey + f
+triangle selectioon
 .fi
 
 This improves:
@@ -116,10 +111,7 @@ corners:
     less accurate
 .fi
 
-Affine correction compensates part of this distortion.
-
-.SH OUTPUT
-Example runtime output:
+Local barycentric triangle interpolation compensatExample runtime output:
 
 .nf
 Mouse 1365 150
