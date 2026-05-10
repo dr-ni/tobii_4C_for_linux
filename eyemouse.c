@@ -8,7 +8,9 @@
 #include <unistd.h>
 #include <limits.h>
 #include <X11/Xlib.h>
-
+#include <linux/input.h>
+#include <fcntl.h>
+#include <pthread.h>
 #include <tobii/tobii.h>
 #include <tobii/tobii_streams.h>
 
@@ -36,6 +38,9 @@ typedef struct
 
 point_t p[3][3];
 
+float gyro_dx = 0.0f;
+float gyro_dy = 0.0f;
+
 float gx=0.5f;
 float gy=0.5f;
 
@@ -47,6 +52,44 @@ float cy=0;
 
 int screen_w=0;
 int screen_h=0;
+
+void* gyro_thread(void* arg)
+{
+    (void)arg;
+
+    int fd =
+        open("/dev/input/event11",O_RDONLY);
+
+    if(fd < 0)
+    {
+        perror("open gyro");
+        return NULL;
+    }
+
+    struct input_event ev;
+
+    while(read(fd,&ev,sizeof(ev)) > 0)
+    {
+        if(ev.type == EV_REL)
+        {
+            if(ev.code == REL_X)
+            {
+                gyro_dx +=
+                    ev.value * 2.0f;
+            }
+
+            if(ev.code == REL_Y)
+            {
+                gyro_dy +=
+                    ev.value * 2.0f;
+            }
+        }
+    }
+
+    close(fd);
+
+    return NULL;
+}
 
 float clampf(float v,float a,float b)
 {
@@ -344,6 +387,14 @@ if(idx != 9)
     int lx=screen_w/2;
     int ly=screen_h/2;
 
+    pthread_t gt;
+
+    pthread_create(
+        &gt,
+        NULL,
+        gyro_thread,
+        NULL);
+
     while(1)
     {
         tobii_device_process_callbacks(dev);
@@ -464,8 +515,13 @@ if(idx != 9)
             cursor smoothing
         */
 
-        cx = cx*0.78f + tx*0.22f;
-        cy = cy*0.78f + ty*0.22f;
+        cx =
+            cx*0.78f +
+            (tx + gyro_dx)*0.22f;
+
+        cy =
+            cy*0.78f +
+            (ty + gyro_dy)*0.22f;
 
         int x = clampf(cx,0,screen_w-1);
         int y = clampf(cy,0,screen_h-1);
