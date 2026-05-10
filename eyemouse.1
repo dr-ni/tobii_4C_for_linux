@@ -1,152 +1,138 @@
-.TH EYEMOUSE 1 "2026" "tobii4c" "User Commands"
+.TH EYECALIB 1 "2026" "Tobii" "User Commands"
 
 .SH NAME
-eyemouse \- realtime eye controlled mouse for Tobii Eye Tracker 4C on Linux/X11
+eyemouse \- Tobii Eye Tracker X11 mouse control
 
 .SH SYNOPSIS
 .B eyemouse
+.RI [ options ]
+.RI [ config_file ]
 
 .SH DESCRIPTION
+
 .B eyemouse
-provides realtime gaze controlled mouse interaction using the
-Tobii Eye Tracker 4C under Linux/X11.
+reads Tobii gaze coordinates and maps them to the X11 mouse cursor.
 
-The current stable runtime uses:
+The current implementation uses:
 
-- barycentric triangle mesh calibrationsh calibration
-- 3x3 calibration mesh
-- low latency smoothing
-- X11 cursor control
-- realtime Tobii gaze tracking
+.IP \(bu 4
+3x3 mesh calibration
 
-The runtime maps gaze coordinates onto desktop cursousing barycentric triangle mesh interpolationerpolation derived from fullscreen calibration samples.om fullscreen calibration samples.
+.IP \(bu 4
+barycentric triangle interpolation
 
-.SH REQUIREMENTS
-Required:
+.IP \(bu 4
+light gaze smoothing
 
-- Linux
-- X11 session
-- Tobii Eye Tracker 4C
-- Tobii Stream Engine runtime
+.IP \(bu 4
+optional Quha gyroscopic fine correction
 
-Wayland is currently unsupported.
+.IP \(bu 4
+automatic Quha device detection through
+.I /dev/input/by-id
 
-Check current session type:
+.IP \(bu 4
+X11 pointer warping
 
-.nf
-$ echo $XDG_SESSION_TYPE
-x11
-.fi
+.SH OPTIONS
 
-.SH CALIBRATION FILE
-Calibration data is loaded from:
+.TP
+.B -h, --help
+Show command line help.
 
-.nf
+.TP
+.B --usegyro
+Enable optional Quha gyroscopic fine correction input.
+
+.TP
+.BI config_file
+Optional calibration file path.
+
+If omitted, the default calibration file is used:
+
+.EX
 ~/.local/tobii_4c/calx11.conf
-.fi
+.EE
 
-The stable runtime currently expects a 3x3 calibration mesh.
+.SH CALIBRATION FORMAT
+
+The calibration file contains exactly 9 calibration points.
+
+Each line contains:
+
+.EX
+raw_x raw_y target_x target_y
+.EE
 
 Example:
 
-.nf
-0.052524 0.075656 0.050000 0.050000
-0.498691 0.050737 0.500000 0.050000
-0.941116 0.014396 0.950000 0.050000
-.fi
+.EX
+0.028959 0.022570 0.030000 0.030000
+0.494846 0.025340 0.500000 0.030000
+0.980519 -0.010076 0.970000 0.030000
+.EE
 
-Format:
+.SH MESH WARP
 
-.nf
-raw_x raw_y target_x target_y
-.fi
+The screen is divided into a 3x3 calibration mesh.
 
-Meaning:
+Each quad is internally split into triangles.
 
-- raw_x/raw_y:
-  measured Tobii gaze coordinates
+The runtime mapping uses barycentric interpolation inside
+the triangle mesh to transform raw Tobii gaze coordinates
+into calibrated screen coordinates.
 
-- target_x/target_y:
-  expected normalized screen coordinates
+This improves edge accuracy compared to simple affine
+transforms.
 
-.SH RUNTIME PIPELINE
-Runtime processing:
+.SH QUHA GYRO SUPPORT
 
-.nf
-raw Tobii gaze
-    -> affine calibration correction
-    -> smoothing
-    -> edge stabilization
-    -> X11 cursor mapping
-    -> XWarpPointer
-.fi
-e performs local barycentric triangle mesh interpolation.
+Optional Quha gyroscopic input can be enabled using:
 
-Conceptually:
+.EX
+--usegyro
+.EE
 
-.nf
-triangle selectioon
-.fi
+The Quha device is automatically detected through:
 
-This improves:
+.EX
+/dev/input/by-id
+.EE
 
-- fullscreen reachability
-- corner precision
-- edge access
-- asymmetric distortion
-
-.SH EDGE BEHAVIOR
-Eye trackers are nonlinear devices.
-
-Typical behavior:
-
-.nf
-center:
-    stable
-
-edges:
-    compressed
-
-corners:
-    less accurate
-.fi
-
-Local barycentric triangle interpolation compensatExample runtime output:
-
-.nf
-Mouse 1365 150
-.fi
-
-Meaning:
-
-- cursor x position
-- cursor y position
+Gyro movement is applied as relative fine correction
+on top of the Tobii gaze position.
 
 .SH FILES
-.nf
-~/.local/tobii_4c/calx11.conf
-.fi
 
-.SH LIMITATIONS
-Current limitations:
+.TP
+.I ~/.local/tobii_4c/calx11.conf
+Default calibration file.
 
-- X11 only
-- no Wayland support
-- no full 3D reprojection
-- no active headpose correction
-- experimental advanced geometry support
+.SH EXAMPLES
 
-.SH EXPERIMENTAL FEATURES
-Experimental runtime branches may contain:
+Default calibration:
 
-- bootstrap geometry import
-- C12 runtime
-- projective warp
-- homography mapping
-- adaptive mesh refinement
-- head compensated gaze mapping
+.EX
+eyemouse
+.EE
 
-These are not fully active in the stable runtime.
+Custom calibration:
+
+.EX
+eyemouse tobii.conf
+.EE
+
+Enable Quha gyro:
+
+.EX
+eyemouse --usegyro
+.EE
+
+Custom calibration with gyro:
+
+.EX
+eyemouse --usegyro tobii.conf
+.EE
 
 .SH SEE ALSO
 .BR eyecalib (1)
