@@ -8,8 +8,6 @@ gcc eyecalib.c -o eyecalib \
 -lX11 -lm
 */
 
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>

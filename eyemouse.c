@@ -1,16 +1,28 @@
-
-//gcc eye_mouse_stable.c -o eye_mouse_stable -I/usr/include -L/usr/lib/tobii -Wl,-rpath,/usr/lib/tobii -ltobii_stream_engine -lX11 -lm
-/* eye_mouse_x11.c */
+/*
+gcc -O2 -Wall -Wextra \
+     -I/usr/include \
+     eyemouse.c \
+     -o eyemouse \
+     -L/usr/lib/tobii \
+     -Wl,-rpath,/usr/lib/tobii \
+     -ltobii_stream_engine \
+     -lX11 -lm -lpthread
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
 #include <unistd.h>
+#include <string.h>
 #include <limits.h>
-#include <X11/Xlib.h>
-#include <linux/input.h>
+#include <math.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <pthread.h>
+
+#include <linux/input.h>
+
+#include <X11/Xlib.h>
+
 #include <tobii/tobii.h>
 #include <tobii/tobii_streams.h>
 
@@ -38,58 +50,141 @@ typedef struct
 
 point_t p[3][3];
 
-float gyro_dx = 0.0f;
-float gyro_dy = 0.0f;
-
 float gx=0.5f;
 float gy=0.5f;
 
 float sx=0.5f;
 float sy=0.5f;
 
-float cx=0;
-float cy=0;
+float cx=0.0f;
+float cy=0.0f;
+
+float gyro_dx=0.0f;
+float gyro_dy=0.0f;
 
 int screen_w=0;
 int screen_h=0;
 
-void* gyro_thread(void* arg)
+
+void print_help(const char* prog)
 {
-    (void)arg;
+    printf(
+        "Usage:\n"
+        "  %s [config_file]\n"
+        "\n"
+        "Options:\n"
+        "  -h --help     show help\n"
+        "  --usegyro     use Quha gyro\n"
+        "\n"
+        "Examples:\n"
+        "  %s\n"
+        "  %s ~/.local/tobii_4c/calx11.conf\n"
+        "  %s --usegyro\n",
+        prog,
+        prog,
+        prog,
+        prog);
+}
 
-    int fd =
-        open("/dev/input/event11",O_RDONLY);
+int load_config(const char* path)
+{
+    FILE* f =
+        fopen(path,"r");
 
-    if(fd < 0)
+    if(!f)
     {
-        perror("open gyro");
-        return NULL;
+        perror(path);
+        return 0;
     }
 
-    struct input_event ev;
+    printf(
+        "Loading calibration: %s\n",
+        path);
 
-    while(read(fd,&ev,sizeof(ev)) > 0)
+    char line[256];
+
+    int idx = 0;
+
+    while(fgets(line,sizeof(line),f))
     {
-        if(ev.type == EV_REL)
-        {
-            if(ev.code == REL_X)
-            {
-                gyro_dx +=
-                    ev.value * 2.0f;
-            }
+        /*
+            skip comments
+        */
 
-            if(ev.code == REL_Y)
+        if(line[0] == '#')
+            continue;
+
+        /*
+            skip empty lines
+        */
+
+        if(line[0] == '\n')
+            continue;
+
+        float rx,ry,tx,ty;
+
+        /*
+            calibration point
+        */
+
+        if(sscanf(
+            line,
+            "%f %f %f %f",
+            &rx,
+            &ry,
+            &tx,
+            &ty) == 4)
+        {
+            int y = idx / 3;
+            int x = idx % 3;
+
+            if(idx < 9)
             {
-                gyro_dy +=
-                    ev.value * 2.0f;
+                p[y][x].raw_x = rx;
+                p[y][x].raw_y = ry;
+
+                p[y][x].target_x = tx;
+                p[y][x].target_y = ty;
+
+                printf(
+                    "CAL %d "
+                    "raw=%f,%f "
+                    "target=%f,%f\n",
+                    idx,
+                    rx,
+                    ry,
+                    tx,
+                    ty);
+
+                idx++;
             }
+        }
+        else
+        {
+            printf(
+                "Ignoring line: %s",
+                line);
         }
     }
 
-    close(fd);
+    fclose(f);
 
-    return NULL;
+    printf(
+        "Loaded %d calibration points\n",
+        idx);
+
+    if(idx != 9)
+    {
+        fprintf(
+            stderr,
+            "Need exactly 9 calibration points\n");
+
+        return 0;
+    }
+
+    return 1;
 }
+
 
 float clampf(float v,float a,float b)
 {
@@ -101,33 +196,32 @@ float clampf(float v,float a,float b)
 
 int bary(
     float px,float py,
-    float x0,float y0,
-    float x1,float y1,
-    float x2,float y2,
-    float* u,float* v,float* w)
+    float ax,float ay,
+    float bx,float by,
+    float cx_,float cy_,
+    float* u,
+    float* v,
+    float* w)
 {
-    float den =
-        (y1-y2)*(x0-x2)+
-        (x2-x1)*(y0-y2);
+    float d =
+        (by-cy_)*(ax-cx_) +
+        (cx_-bx)*(ay-cy_);
 
-    if(fabsf(den)<1e-6f)
+    if(fabs(d) < 1e-6f)
         return 0;
 
-    *u=((y1-y2)*(px-x2)+(x2-x1)*(py-y2))/den;
+    *u =
+        ((by-cy_)*(px-cx_) +
+         (cx_-bx)*(py-cy_)) / d;
 
-    *v=((y2-y0)*(px-x2)+(x0-x2)*(py-y2))/den;
+    *v =
+        ((cy_-ay)*(px-cx_) +
+         (ax-cx_)*(py-cy_)) / d;
 
-    *w=1.0f-*u-*v;
+    *w =
+        1.0f - *u - *v;
 
     return 1;
-}
-
-int inside(float u,float v,float w)
-{
-    return
-        u>=-0.2f &&
-        v>=-0.2f &&
-        w>=-0.2f;
 }
 
 void warp(
@@ -209,7 +303,9 @@ void warp(
             continue;
         }
 
-        if(u >= -0.02f && v >= -0.02f && w >= -0.02f)
+        if(u >= -0.02f &&
+           v >= -0.02f &&
+           w >= -0.02f)
         {
             *ox =
                 u*t[i].tx[0] +
@@ -220,10 +316,6 @@ void warp(
                 u*t[i].ty[0] +
                 v*t[i].ty[1] +
                 w*t[i].ty[2];
-
-            /*
-                no expansion anymore
-            */
 
             *ox = clampf(*ox,0.0f,1.0f);
             *oy = clampf(*oy,0.0f,1.0f);
@@ -236,9 +328,117 @@ void warp(
     *oy = clampf(raw_y,0.0f,1.0f);
 }
 
-void url_cb(const char* url,void* data)
+int open_quha_device(void)
 {
-    snprintf((char*)data,256,"%s",url);
+    DIR* dir =
+        opendir("/dev/input/by-id");
+
+    if(!dir)
+    {
+        perror("opendir");
+        return -1;
+    }
+
+    struct dirent* de;
+
+    while((de = readdir(dir)))
+    {
+        if(!strstr(de->d_name,"Quha"))
+            continue;
+
+        if(!strstr(de->d_name,"event"))
+            continue;
+
+        char linkpath[PATH_MAX];
+
+        snprintf(
+            linkpath,
+            sizeof(linkpath),
+            "/dev/input/by-id/%s",
+            de->d_name);
+
+        char target[PATH_MAX];
+
+        ssize_t len =
+            readlink(
+                linkpath,
+                target,
+                sizeof(target)-1);
+
+        if(len <= 0)
+            continue;
+
+        target[len] = 0;
+
+        char final[PATH_MAX];
+
+        snprintf(
+            final,
+            sizeof(final),
+            "/dev/input/%s",
+            strrchr(target,'/')+1);
+
+        printf(
+            "Using Quha device: %s\n",
+            final);
+
+        int fd =
+            open(final,O_RDONLY);
+
+        if(fd >= 0)
+        {
+            closedir(dir);
+            return fd;
+        }
+    }
+
+    closedir(dir);
+
+    fprintf(
+        stderr,
+        "No Quha device found\n");
+
+    return -1;
+}
+
+void* gyro_thread(void* arg)
+{
+    (void)arg;
+
+    int fd =
+        open_quha_device();
+
+    if(fd < 0)
+        return NULL;
+
+    struct input_event ev;
+
+    while(read(fd,&ev,sizeof(ev)) > 0)
+    {
+        if(ev.type != EV_REL)
+            continue;
+
+        if(ev.code == REL_X)
+            gyro_dx += ev.value * 2.0f;
+
+        if(ev.code == REL_Y)
+            gyro_dy += ev.value * 2.0f;
+    }
+
+    close(fd);
+
+    return NULL;
+}
+
+void url_cb(
+    const char* url,
+    void* user_data)
+{
+    snprintf(
+        (char*)user_data,
+        256,
+        "%s",
+        url);
 }
 
 void gaze_cb(
@@ -250,21 +450,19 @@ void gaze_cb(
     if(g->validity != TOBII_VALIDITY_VALID)
         return;
 
-    /*
-        only mesh warp
-    */
-
     warp(
         g->position_xy[0],
         g->position_xy[1],
         &gx,
         &gy);
-
 }
 
-void get_config_path(char* out,size_t size)
+void get_config_path(
+    char* out,
+    size_t size)
 {
-    const char* home = getenv("HOME");
+    const char* home =
+        getenv("HOME");
 
     snprintf(
         out,
@@ -273,92 +471,74 @@ void get_config_path(char* out,size_t size)
         home ? home : ".");
 }
 
-int main()
+int main(int argc,char** argv)
 {
+    int use_gyro = 0;
     char cfg[PATH_MAX];
-    get_config_path(cfg,sizeof(cfg));
-    FILE* f = fopen(cfg,"r");
-    printf("Loading calibration: %s\n",cfg);
 
-    if(!f)
+    get_config_path(
+        cfg,
+        sizeof(cfg));
+
+    for(int i=1;i<argc;i++)
     {
-        printf("Missing calx11.conf\n");
-        printf("Missing calibration file\n");
+        if(!strcmp(argv[i],"-h") ||
+           !strcmp(argv[i],"--help"))
+        {
+            print_help(argv[0]);
+            return 0;
+        }
+
+        if(!strcmp(argv[i],"--usegyro"))
+        {
+            use_gyro = 1;
+            continue;
+        }
+
+        /*
+            config path
+        */
+
+        snprintf(
+            cfg,
+            sizeof(cfg),
+            "%s",
+            argv[i]);
+    }
+
+    if(!load_config(cfg))
+    {
+        printf("Invalid calibration file\n");
         return 1;
     }
 
-
-    char line[256];
-
-    int idx = 0;
-
-while(fgets(line,sizeof(line),f))
-{
-    /* Kommentare überspringen */
-    if(line[0] == '#')
-        continue;
-
-    /* Leere Zeilen überspringen */
-    if(line[0] == '\n')
-        continue;
-
-    float rx,ry,tx,ty;
-
-    /* Kalibrierpunkte erkennen */
-    if(sscanf(
-        line,
-        "%f %f %f %f",
-        &rx,
-        &ry,
-        &tx,
-        &ty) == 4)
-    {
-        int y = idx / 3;
-        int x = idx % 3;
-
-        if(idx < 9)
-        {
-            p[y][x].raw_x = rx;
-            p[y][x].raw_y = ry;
-            p[y][x].target_x = tx;
-            p[y][x].target_y = ty;
-
-            idx++;
-        }
-    }
-    else
-    {
-        /* Zusatzparameter ignorieren */
-        continue;
-    }
-}
-
-if(idx != 9)
-{
-    printf(
-        "Invalid calibration file "
-        "(need 9 points, got %d)\n",
-        idx);
-
-    fclose(f);
-    return 1;
-}
-    Display* d = XOpenDisplay(NULL);
+    Display* d =
+        XOpenDisplay(NULL);
 
     if(!d)
     {
-        printf("No X11 display\n");
+        printf(
+            "No X11 display\n");
+
         return 1;
     }
 
-    int screen = DefaultScreen(d);
+    int screen =
+        DefaultScreen(d);
 
-    screen_w = DisplayWidth(d, screen);
-    screen_h = DisplayHeight(d, screen);
+    screen_w =
+        DisplayWidth(d,screen);
 
-    printf("Screen: %dx%d\n",screen_w,screen_h);
+    screen_h =
+        DisplayHeight(d,screen);
 
-    Window root = RootWindow(d,screen);
+    printf(
+        "Screen: %dx%d\n",
+        screen_w,
+        screen_h);
+
+    Window root =
+        RootWindow(d,screen);
 
     cx = screen_w/2;
     cy = screen_h/2;
@@ -368,152 +548,75 @@ if(idx != 9)
 
     char url[256]={0};
 
-    tobii_api_create(&api,NULL,NULL);
+    tobii_api_create(
+        &api,
+        NULL,
+        NULL);
 
     tobii_enumerate_local_device_urls(
         api,
         url_cb,
         url);
 
-    printf("Device: %s\n",url);
+    if(url[0] == 0)
+    {
+        printf("No Tobii device found\n");
+        return 1;
+    }
 
-    tobii_device_create(api,url,&dev);
+    printf(
+        "Device: %s\n",
+        url);
+
+    tobii_device_create(
+        api,
+        url,
+        &dev);
 
     tobii_gaze_point_subscribe(
         dev,
         gaze_cb,
         NULL);
 
+    if(use_gyro)
+    {
+        pthread_t gt;
+
+        pthread_create(
+            &gt,
+            NULL,
+            gyro_thread,
+            NULL);
+        printf(
+            "Gyro enabled\n");
+    }
+    else
+    {
+        printf(
+            "Gyro disabled\n");
+    }
+
     int lx=screen_w/2;
     int ly=screen_h/2;
 
-    pthread_t gt;
-
-    pthread_create(
-        &gt,
-        NULL,
-        gyro_thread,
-        NULL);
-
     while(1)
     {
-        tobii_device_process_callbacks(dev);
-
-        float dx = gx - sx;
-        float dy = gy - sy;
-
-        float dist =
-            sqrtf(dx*dx + dy*dy);
-
-        /*
-            low hysteresis smoothing
-        */
-
-        float alpha;
-
-        float edge =
-            fminf(
-                fminf(gx,1.0f-gx),
-                fminf(gy,1.0f-gy));
-
-        if(dist < 0.0015f)
-        {
-            alpha = 0.08f;
-        }
-        else if(dist < 0.006f)
-        {
-            alpha = 0.18f;
-        }
-        else
-        {
-            alpha = 0.45f;
-        }
-
-        /*
-            directional acceleration
-        */
-
-        if((gx-sx)*(gx-sx) +
-           (gy-sy)*(gy-sy) > 0.02f*0.02f)
-        {
-            alpha = 0.60f;
-        }
-
-        if(edge < 0.08f)
-        {
-            alpha *= 0.3f;
-        }
-        else if(edge < 0.15f)
-        {
-            alpha *= 0.55f;
-        }
-
-        if(edge < 0.10f)
-        {
-            if(fabsf(gx - sx) < 0.006f)
-                gx = sx;
-
-            if(fabsf(gy - sy) < 0.006f)
-                gy = sy;
-        }
+        tobii_device_process_callbacks(
+            dev);
 
         sx =
-            sx*(1.0f-alpha) +
-            gx*alpha;
+            sx*0.88f +
+            gx*0.12f;
 
         sy =
-            sy*(1.0f-alpha) +
-            gy*alpha;
+            sy*0.88f +
+            gy*0.12f;
 
-        /*
-            edge damping
-        */
+        float tx =
+            sx * screen_w;
 
-        float ex = sx;
-        float ey = sy;
-
-        if(ex < 0.08f)
-        {
-            ex =
-                0.08f *
-                powf(ex / 0.08f,1.35f);
-        }
-
-        if(ex > 0.92f)
-        {
-            float t =
-                (1.0f - ex) / 0.08f;
-
-            ex =
-                1.0f -
-                0.08f *
-                powf(t,1.35f);
-        }
-
-        if(ey < 0.08f)
-        {
-            ey =
-                0.08f *
-                powf(ey / 0.08f,1.35f);
-        }
-
-        if(ey > 0.92f)
-        {
-            float t =
-                (1.0f - ey) / 0.08f;
-
-            ey =
-                1.0f -
-                0.08f *
-                powf(t,1.35f);
-        }
-
-        float tx = ex * screen_w;
-        float ty = ey * screen_h;
-
-        /*
-            cursor smoothing
-        */
+        float ty =
+            sy * screen_h;
 
         cx =
             cx*0.78f +
@@ -523,8 +626,20 @@ if(idx != 9)
             cy*0.78f +
             (ty + gyro_dy)*0.22f;
 
-        int x = clampf(cx,0,screen_w-1);
-        int y = clampf(cy,0,screen_h-1);
+        gyro_dx *= 0.92f;
+        gyro_dy *= 0.92f;
+
+        int x =
+            clampf(
+                cx,
+                0,
+                screen_w-1);
+
+        int y =
+            clampf(
+                cy,
+                0,
+                screen_h-1);
 
         if(abs(x-lx)<DEADZONE &&
            abs(y-ly)<DEADZONE)
