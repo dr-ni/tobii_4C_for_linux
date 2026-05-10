@@ -166,7 +166,7 @@ void warp(
             continue;
         }
 
-        if(inside(u,v,w))
+        if(u >= -0.02f && v >= -0.02f && w >= -0.02f)
         {
             *ox =
                 u*t[i].tx[0] +
@@ -216,6 +216,7 @@ void gaze_cb(
         g->position_xy[1],
         &gx,
         &gy);
+
 }
 
 void get_config_path(char* out,size_t size)
@@ -347,15 +348,71 @@ if(idx != 9)
     {
         tobii_device_process_callbacks(dev);
 
+        float dx = gx - sx;
+        float dy = gy - sy;
+
+        float dist =
+            sqrtf(dx*dx + dy*dy);
+
         /*
-            light smoothing only
+            low hysteresis smoothing
         */
 
+        float alpha;
+
+        float edge =
+            fminf(
+                fminf(gx,1.0f-gx),
+                fminf(gy,1.0f-gy));
+
+        if(dist < 0.0015f)
+        {
+            alpha = 0.08f;
+        }
+        else if(dist < 0.006f)
+        {
+            alpha = 0.18f;
+        }
+        else
+        {
+            alpha = 0.45f;
+        }
+
+        /*
+            directional acceleration
+        */
+
+        if((gx-sx)*(gx-sx) +
+           (gy-sy)*(gy-sy) > 0.02f*0.02f)
+        {
+            alpha = 0.60f;
+        }
+
+        if(edge < 0.08f)
+        {
+            alpha *= 0.3f;
+        }
+        else if(edge < 0.15f)
+        {
+            alpha *= 0.55f;
+        }
+
+        if(edge < 0.10f)
+        {
+            if(fabsf(gx - sx) < 0.006f)
+                gx = sx;
+
+            if(fabsf(gy - sy) < 0.006f)
+                gy = sy;
+        }
+
         sx =
-            sx*0.88f + gx*0.12f;
+            sx*(1.0f-alpha) +
+            gx*alpha;
 
         sy =
-            sy*0.88f + gy*0.12f;
+            sy*(1.0f-alpha) +
+            gy*alpha;
 
         /*
             edge damping
