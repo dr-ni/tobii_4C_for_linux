@@ -7,20 +7,20 @@ and eye-controlled mouse interaction for Linux desktops using X11.
 
 The current stable runtime is based on:
 
-* barycentric triangle mesh calibration
+* Barycentric triangle mesh calibration
 * 3x3 calibration mesh warping
 * Tobii Stream Engine
-* direct X11 cursor control
-* low latency gaze smoothing
-* local triangle interpolation
-* optional Quha gyro integration
+* Direct X11 cursor control
+* Low latency gaze smoothing
+* Local triangle interpolation
+* Optional Quha gyro integration
 
 The current runtime does NOT yet use:
 
-* full projective warp
-* active bootstrap geometry
-* active C12 mapping
-* full 3D reprojection
+* Full projective warp
+* Active bootstrap geometry
+* Active C12 mapping
+* Full 3D reprojection
 
 These parts exist experimentally in newer branches but are not part
 of the current stable runtime.
@@ -82,6 +82,12 @@ This installs:
 
 Both systemd services are enabled and started automatically.
 
+Afterwards, update the dynamic linker cache:
+
+```bash
+sudo ldconfig
+```
+
 ## 2. Build eyecalib and eyemouse
 
 ```bash
@@ -132,8 +138,6 @@ sudo make uninstall
 ---
 
 # Calibration
-
-## eyecalib
 
 `eyecalib` displays a fullscreen calibration overlay and collects
 gaze samples for 9 screen positions arranged in a 3x3 grid.
@@ -200,29 +204,27 @@ Example:
 
 | Value    | Meaning                    |
 |----------|----------------------------|
-| raw_x    | measured Tobii gaze x      |
-| raw_y    | measured Tobii gaze y      |
-| target_x | expected screen x (0–1)    |
-| target_y | expected screen y (0–1)    |
+| raw_x    | Measured Tobii gaze x      |
+| raw_y    | Measured Tobii gaze y      |
+| target_x | Expected screen x (0–1)    |
+| target_y | Expected screen y (0–1)    |
 
 The config file also stores runtime parameters:
 
 | Parameter      | Default | Meaning                          |
 |----------------|---------|----------------------------------|
-| gaze_smooth    | 0.12    | gaze low-pass filter strength    |
-| cursor_smooth  | 0.22    | cursor low-pass filter strength  |
-| edge_zone      | 0.08    | edge expansion zone width        |
-| edge_power     | 1.35    | edge expansion nonlinearity      |
-| sensor_offset_x| 0.0     | horizontal sensor offset         |
-| sensor_offset_y| 0.0     | vertical sensor offset           |
-| screen_distance| 63.0    | screen distance in cm            |
-| screen_tilt    | 0.0     | screen tilt angle in degrees     |
+| gaze_smooth    | 0.12    | Gaze low-pass filter strength    |
+| cursor_smooth  | 0.22    | Cursor low-pass filter strength  |
+| edge_zone      | 0.08    | Edge expansion zone width        |
+| edge_power     | 1.35    | Edge expansion nonlinearity      |
+| sensor_offset_x| 0.0     | Horizontal sensor offset         |
+| sensor_offset_y| 0.0     | Vertical sensor offset           |
+| screen_distance| 63.0    | Viewing distance                 |
+| screen_tilt    | 0.0     | Screen tilt angle in degrees     |
 
 ---
 
-# Run Eye Mouse
-
-## eyemouse
+# eyemouse
 
 ```bash
 eyemouse [options] [config_file]
@@ -232,8 +234,8 @@ eyemouse [options] [config_file]
 
 | Option      | Description                              |
 |-------------|------------------------------------------|
-| `-h --help` | show help                                |
-| `--usegyro` | enable Quha gyroscopic fine correction   |
+| `-h --help` | Show command line help                   |
+| `--usegyro` | Enable Quha gyroscopic fine correction   |
 
 ### Examples
 
@@ -255,7 +257,7 @@ eyemouse --usegyro tobii.conf
 
 ```
 Screen: 1920x1080
-Device: tobii-prp://TOBIIDFU4C-090200627319
+Device: tobii-prp://<serial>
 Gyro disabled
 Mouse 1365  150
 ```
@@ -274,24 +276,24 @@ P20  P21  P22
 
 The mesh is split into 8 triangles. For every gaze sample:
 
-1. the containing triangle is selected
-2. barycentric weights are calculated
-3. local warped screen coordinates are interpolated
+1. The containing triangle is selected
+2. Barycentric weights are calculated
+3. Local warped screen coordinates are interpolated
 
 This improves:
 
-- fullscreen reachability
-- edge precision
-- corner access
-- asymmetric distortion correction
-- local edge compensation
+- Fullscreen reachability
+- Edge precision
+- Corner access
+- Asymmetric distortion correction
+- Local edge compensation
 
 Without mesh correction, raw gaze mapping typically causes:
 
-- compressed edges
-- unstable corners
-- asymmetric fullscreen reachability
-- poor border access
+- Compressed edges
+- Unstable corners
+- Asymmetric fullscreen reachability
+- Poor border access
 
 ---
 
@@ -309,10 +311,10 @@ eye is stationary.
 
 This improves:
 
-- cursor stability
-- accessibility usage
-- fullscreen usability
-- small target interaction
+- Cursor stability
+- Accessibility usage
+- Fullscreen usability
+- Small target interaction
 
 ---
 
@@ -347,16 +349,12 @@ echo $XDG_SESSION_TYPE
 
 ---
 
-# Calibration
+# Recalibration
 
-## Recalibrate
+Run `eyecalib` again at any time to recalibrate.
+The previous calibration file will be overwritten.
 
-Simply run `eyecalib` again. The previous calibration file
-will be overwritten.
-
-## Manual edit
-
-The calibration file is plain text and can be edited directly:
+The calibration file is plain text and can also be edited manually:
 
 ```
 ~/.local/tobii_4c/calx11.conf
@@ -368,14 +366,14 @@ The calibration file is plain text and can be edited directly:
 
 Partially implemented or experimental:
 
-- bootstrap geometry import
+- Bootstrap geometry import
 - C12 runtime
 - 3D gaze reprojection
-- head compensated mapping
-- projective warp
-- adaptive mesh refinement
-- binocular convergence estimation
-- advanced geometry correction
+- Head compensated mapping
+- Projective warp
+- Adaptive mesh refinement
+- Binocular convergence estimation
+- Advanced geometry correction
 
 These are not fully active in the stable runtime.
 
@@ -385,13 +383,13 @@ These are not fully active in the stable runtime.
 
 Planned future improvements:
 
-- projective warp / homography
-- bilinear mesh interpolation
-- geometry-aware reprojection
-- headpose compensation
-- dynamic runtime calibration
-- adaptive edge expansion
-- improved corner precision
+- Projective warp / homography
+- Bilinear mesh interpolation
+- Geometry-aware reprojection
+- Headpose compensation
+- Dynamic runtime calibration
+- Adaptive edge expansion
+- Improved corner precision
 
 ---
 
@@ -399,10 +397,10 @@ Planned future improvements:
 
 | Path | Description |
 |------|-------------|
-| `~/.local/tobii_4c/calx11.conf` | calibration and runtime config |
+| `~/.local/tobii_4c/calx11.conf` | Calibration and runtime config |
 | `/usr/lib/tobii/` | Tobii Stream Engine shared libraries |
 | `/usr/include/tobii/` | Tobii Stream Engine headers |
-| `/etc/ld.so.conf.d/tobii.conf` | library path config |
+| `/etc/ld.so.conf.d/tobii.conf` | Library path config |
 | `/etc/systemd/system/tobii_engine.service` | Tobii engine service |
 | `/etc/systemd/system/tobiiusb.service` | Tobii USB service |
 

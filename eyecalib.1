@@ -18,11 +18,11 @@ used by:
 
 Calibration improves:
 
-- fullscreen reachability
-- edge precision
-- cursor stability
-- corner access
-- asymmetric distortion correction
+- Fullscreen reachability
+- Edge precision
+- Cursor stability
+- Corner access
+- Asymmetric distortion correction
 
 .SH CALIBRATION PROCESS
 The calibration process:
@@ -69,8 +69,8 @@ raw_x raw_y target_x target_y
 .SH CALIBRATION MATHEMATICS
 Each calibration sample stores:
 
-- measured Tobii gaze position
-- expected screen position
+- Measured Tobii gaze position
+- Expected screen position
 
 Example:
 
@@ -80,40 +80,51 @@ Example:
 
 Meaning:
 
-- tracker measured 52.4% horizontal gaze
-- actual target was 50%
+- Tracker measured 52.4% horizontal gaze
+- Actual target was 50%
 
 The runtime later derives local barycentric mesh warp correction.
 
 .SH BARYCENTRIC MESH MAPPING
-The stabtion derived from calibration samples.
+The warp correction is derived from calibration samples.
 
-Conceptually:
+The 3x3 mesh is split into 8 triangles.
+For every gaze sample the runtime:
 
-.nf
-triangle barycentric coordinates\n   achability
-- fullscreen coverage
-- corner precision
+.IP 1. 4
+Selects the containing triangle
+.IP 2. 4
+Calculates barycentric coordinates
+.IP 3. 4
+Interpolates local warped screen coordinates
+
+This improves:
+
+- Fullscreen reachability
+- Fullscreen coverage
+- Corner precision
+
+.fi
 
 .SH RUNTIME FILTERING
 Calibration performs:
 
-- invalid sample rejection
-- realtime smoothing
-- sample stabilization
-- gaze averaging
+- Invalid sample rejection
+- Realtime smoothing
+- Sample stabilization
+- Gaze averaging
 
 This reduces:
 
-- jitter
-- unstable fixation
-- noisy gaze samples
+- Jitter
+- Unstable fixation
+- Noisy gaze samples
 
 .SH X11 REQUIREMENT
 The calibration utility currently requires:
 
 - X11
-- fullscreen override-redirect windows
+- Fullscreen override-redirect windows
 - X11 pointer control
 
 Wayland is unsupported.
@@ -133,18 +144,18 @@ x11
 .SH CURRENT STABLE RUNTIME
 The current stable runtime actively uses:
 
-- barylation
+- Barycentric interpolation
 - 3x3 calibration mesh
 - X11 cursor mapping
-- realtime smoothing
+- Realtime smoothing
 
 The following features are experimental or incomplete:
 
-- bootstrap geometry import
+- Bootstrap geometry import
 - C12 runtime
-- projective warp
-- head compensated reprojection
-- full 3D geometry correction
+- Projective warp
+- Head compensated reprojection
+- Full 3D geometry correction
 
 .SH EXAMPLE
 Run calibration:
