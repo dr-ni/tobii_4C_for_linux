@@ -24,12 +24,10 @@ gcc eyecalib.c -o eyecalib \
 
 #define POINTS 9
 #define SAMPLE_COUNT 250
-
 #define TARGET_OUTER 22
 #define TARGET_MIDDLE 20
-#define TARGET_INNER 6
+#define TARGET_INNER 10
 #define TARGET_CROSS 36
-
 #define MAX_RETRIES 3
 #define MIN_VALID_SAMPLES 80
 
