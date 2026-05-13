@@ -165,8 +165,13 @@ int import_tobii_db()
 
     while(fgets(line,sizeof(line),f))
     {
-        if(!(strstr(line,"\"name\":\"NucBox\"") ||
-             strstr(line,"\"name\":\"uwe1\"")))
+        if(strstr(line,"\"readonly\":true"))
+        {
+            continue;
+        }
+
+        if(!(strstr(line,"IS4") ||
+             strstr(line,"IS4_Large_Peripheral")))
         {
             continue;
         }
@@ -285,6 +290,8 @@ int import_tobii_db()
                 "[DB] derived sensor_offset_y = %.5f\n",
                 cfg.sensor_offset_y);
         }
+
+        break;
     }
 
     fclose(f);
