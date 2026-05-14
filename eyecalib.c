@@ -24,12 +24,23 @@ gcc eyecalib.c -o eyecalib \
 
 #define POINTS 9
 #define SAMPLE_COUNT 250
+
 #define TARGET_OUTER 22
 #define TARGET_MIDDLE 20
-#define TARGET_INNER 10
+#define TARGET_INNER 6
 #define TARGET_CROSS 36
+
 #define MAX_RETRIES 3
 #define MIN_VALID_SAMPLES 80
+
+static int debug = 0;
+static int debug_gaze = 0;
+
+#define DBG(...) \
+    do { if(debug) { fprintf(stderr, "[DBG] " __VA_ARGS__); fflush(stderr); } } while(0)
+
+#define DBGGAZE(...) \
+    do { if(debug_gaze) { fprintf(stderr, "[GAZE] " __VA_ARGS__); fflush(stderr); } } while(0)
 
 typedef struct
 {
@@ -114,13 +125,19 @@ void gaze_cb(
     valid = 0;
 
     if(g->validity != TOBII_VALIDITY_VALID)
+    {
+        DBGGAZE("invalid sample\n");
         return;
+    }
 
     if(g->position_xy[0] < 0.0f ||
        g->position_xy[0] > 1.0f ||
        g->position_xy[1] < 0.0f ||
        g->position_xy[1] > 1.0f)
     {
+        DBGGAZE("out of range: (%.4f,%.4f)\n",
+            g->position_xy[0],
+            g->position_xy[1]);
         return;
     }
 
@@ -131,6 +148,12 @@ void gaze_cb(
     gy =
         g->position_xy[1] +
         cfg.sensor_offset_y;
+
+    DBGGAZE("raw=(%.4f,%.4f) offset=(%.4f,%.4f)\n",
+        g->position_xy[0],
+        g->position_xy[1],
+        gx,
+        gy);
 
     valid = 1;
 }
@@ -145,6 +168,8 @@ int import_tobii_db()
         "%s/.config/TobiiProEyeTrackerManager/db/da-setups.db",
         getenv("HOME"));
 
+    DBG("import_tobii_db: opening %s\n", db);
+
     printf(
         "Opening Tobii DB: %s\n",
         db);
@@ -156,6 +181,8 @@ int import_tobii_db()
         printf(
             "No Tobii DB bootstrap found\n");
 
+        DBG("import_tobii_db: file not found\n");
+
         return 0;
     }
 
@@ -165,16 +192,13 @@ int import_tobii_db()
 
     while(fgets(line,sizeof(line),f))
     {
-        if(strstr(line,"\"readonly\":true"))
+        if(!(strstr(line,"\"name\":\"NucBox\"") ||
+             strstr(line,"\"name\":\"uwe1\"")))
         {
             continue;
         }
 
-        if(!(strstr(line,"IS4") ||
-             strstr(line,"IS4_Large_Peripheral")))
-        {
-            continue;
-        }
+        DBG("import_tobii_db: matched profile line (len=%zu)\n", strlen(line));
 
         printf(
             "\n[DB ACTIVE PROFILE]\n%s\n",
@@ -189,6 +213,9 @@ int import_tobii_db()
 
             cfg.sensor_offset_y =
                 -0.004f;
+
+            DBG("import_tobii_db: sensor_offset_y set to %.4f (under placement)\n",
+                cfg.sensor_offset_y);
         }
 
         char* a =
@@ -211,6 +238,8 @@ int import_tobii_db()
 
             cfg.screen_tilt =
                 angle;
+
+            DBG("import_tobii_db: screen_tilt=%.2f\n", cfg.screen_tilt);
         }
 
         char* w =
@@ -228,6 +257,8 @@ int import_tobii_db()
             printf(
                 "[DB] display width: %.2f mm\n",
                 width_mm);
+
+            DBG("import_tobii_db: display width=%.2f mm\n", width_mm);
         }
 
         char* h =
@@ -245,6 +276,8 @@ int import_tobii_db()
             printf(
                 "[DB] display height: %.2f mm\n",
                 height_mm);
+
+            DBG("import_tobii_db: display height=%.2f mm\n", height_mm);
         }
 
         float blx,bly,blz;
@@ -258,6 +291,8 @@ int import_tobii_db()
                 &blx,&bly,&blz,
                 &tlx,&tly,&tlz,
                 &trx,&try_,&trz);
+
+        DBG("import_tobii_db: geometry sscanf matched=%d\n", matched);
 
         if(matched == 9)
         {
@@ -289,9 +324,10 @@ int import_tobii_db()
             printf(
                 "[DB] derived sensor_offset_y = %.5f\n",
                 cfg.sensor_offset_y);
-        }
 
-        break;
+            DBG("import_tobii_db: screen_skew=%.2f sensor_offset_y=%.5f\n",
+                screen_skew, cfg.sensor_offset_y);
+        }
     }
 
     fclose(f);
@@ -300,6 +336,8 @@ int import_tobii_db()
     {
         printf(
             "[DB] no matching local profile found\n");
+
+        DBG("import_tobii_db: no matching profile\n");
 
         return 0;
     }
@@ -320,6 +358,12 @@ int import_tobii_db()
 
     printf(
         "     screen_tilt     = %.2f\n",
+        cfg.screen_tilt);
+
+    DBG("import_tobii_db: complete  "
+        "offset=(%.5f,%.5f) tilt=%.2f\n",
+        cfg.sensor_offset_x,
+        cfg.sensor_offset_y,
         cfg.screen_tilt);
 
     return 1;
@@ -488,17 +532,60 @@ void draw_target(
     XFlush(d);
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    for(int i=1;i<argc;i++)
+    {
+        if(!strcmp(argv[i],"--debug"))
+        {
+            debug = 1;
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--debuggaze"))
+        {
+            debug_gaze = 1;
+            continue;
+        }
+
+        if(!strcmp(argv[i],"-h") ||
+           !strcmp(argv[i],"--help"))
+        {
+            printf(
+                "Usage: eyecalib [options]\n"
+                "\n"
+                "Options:\n"
+                "  -h --help       show help\n"
+                "  --debug         verbose debug output on stderr\n"
+                "  --debuggaze     verbose gaze output on stderr (high frequency)\n");
+            return 0;
+        }
+    }
+
+    DBG("eyecalib starting\n");
+    DBG("debug=%d debug_gaze=%d\n", debug, debug_gaze);
+
     import_tobii_db();
+
+    DBG("runtime config after DB import:\n");
+    DBG("  sensor_offset_x = %.5f\n", cfg.sensor_offset_x);
+    DBG("  sensor_offset_y = %.5f\n", cfg.sensor_offset_y);
+    DBG("  screen_distance = %.3f\n", cfg.screen_distance);
+    DBG("  screen_tilt     = %.3f\n", cfg.screen_tilt);
+    DBG("  gaze_smooth     = %.3f\n", cfg.gaze_smooth);
+    DBG("  cursor_smooth   = %.3f\n", cfg.cursor_smooth);
+    DBG("  edge_zone       = %.3f\n", cfg.edge_zone);
+    DBG("  edge_power      = %.3f\n", cfg.edge_power);
 
     Display* d = XOpenDisplay(NULL);
 
     if(!d)
     {
-        printf("No X11 display\n");
+        fprintf(stderr, "No X11 display\n");
         return 1;
     }
+
+    DBG("X11 display opened\n");
 
     int screen =
         DefaultScreen(d);
@@ -508,6 +595,8 @@ int main()
 
     int H =
         DisplayHeight(d,screen);
+
+    DBG("screen: %dx%d  index=%d\n", W, H, screen);
 
     Window root =
         RootWindow(d,screen);
@@ -592,11 +681,11 @@ int main()
         NULL,
         NULL) != TOBII_ERROR_NO_ERROR)
     {
-        printf(
-            "tobii_api_create failed\n");
-
+        fprintf(stderr, "tobii_api_create failed\n");
         return 1;
     }
+
+    DBG("tobii_api_create ok\n");
 
     tobii_enumerate_local_device_urls(
         api,
@@ -605,9 +694,7 @@ int main()
 
     if(strlen(url)==0)
     {
-        printf(
-            "No Tobii device found\n");
-
+        fprintf(stderr, "No Tobii device found\n");
         return 1;
     }
 
@@ -615,21 +702,25 @@ int main()
         "Using device: %s\n",
         url);
 
+    DBG("tobii device url: %s\n", url);
+
     if(tobii_device_create(
         api,
         url,
         &dev) != TOBII_ERROR_NO_ERROR)
     {
-        printf(
-            "tobii_device_create failed\n");
-
+        fprintf(stderr, "tobii_device_create failed\n");
         return 1;
     }
+
+    DBG("tobii_device_create ok\n");
 
     tobii_gaze_point_subscribe(
         dev,
         gaze_cb,
         NULL);
+
+    DBG("tobii_gaze_point_subscribe ok\n");
 
     printf(
         "Calibration starting\n");
@@ -673,6 +764,11 @@ int main()
             POINTS,
             targets[i][0],
             targets[i][1]);
+
+        DBG("point %d/%d target=(%.4f,%.4f) screen=(%d,%d)\n",
+            i+1, POINTS,
+            targets[i][0], targets[i][1],
+            px, py);
 
         sleep(2);
 
@@ -786,6 +882,12 @@ int main()
                     "[OK] valid samples: %d\n",
                     count);
 
+                DBG("point %d ok: raw=(%.6f,%.6f) samples=%d\n",
+                    i+1,
+                    p[i/3][i%3].raw_x,
+                    p[i/3][i%3].raw_y,
+                    count);
+
                 break;
             }
 
@@ -794,6 +896,9 @@ int main()
                 retry+1,
                 MAX_RETRIES,
                 count);
+
+            DBG("retry %d/%d insufficient samples=%d\n",
+                retry+1, MAX_RETRIES, count);
 
             sleep(1);
         }
@@ -840,6 +945,8 @@ int main()
     printf(
         "Saved calibration: %s\n",
         cfgpath);
+
+    DBG("calibration saved to %s\n", cfgpath);
 
     tobii_gaze_point_unsubscribe(dev);
 

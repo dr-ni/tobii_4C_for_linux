@@ -7,7 +7,9 @@ MANDIR  := $(PREFIX)/share/man/man1
 CFLAGS  := -O2 -Wall -Wextra -I/usr/include
 LDFLAGS := -L/usr/lib/tobii -Wl,-rpath,/usr/lib/tobii
 
-LIBS    := -ltobii_stream_engine -lX11 -lm
+LIBS_COMMON := -ltobii_stream_engine -lX11 -lm
+LIBS_EYECALIB := $(LIBS_COMMON)
+LIBS_EYEMOUSE := $(LIBS_COMMON) -lXtst -lpthread
 
 TARGETS := eyecalib eyemouse
 
@@ -16,10 +18,10 @@ TARGETS := eyecalib eyemouse
 all: $(TARGETS)
 
 eyecalib: eyecalib.c
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS_EYECALIB)
 
 eyemouse: eyemouse.c
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS_EYEMOUSE)
 
 clean:
 	rm -f $(TARGETS)

@@ -5,6 +5,7 @@ eyecalib \- Tobii Eye Tracker X11 gaze calibration tool
 
 .SH SYNOPSIS
 .B eyecalib
+.RI [ options ]
 
 .SH DESCRIPTION
 .B eyecalib
@@ -23,6 +24,31 @@ Calibration improves:
 - Cursor stability
 - Corner access
 - Asymmetric distortion correction
+
+.SH OPTIONS
+
+.TP
+.B -h, --help
+Show command line help.
+
+.TP
+.B --debug
+Enable verbose debug output on stderr.
+Covers Tobii DB import, device init, X11 setup, per-point calibration
+results, sample counts, and config save.
+Output lines are prefixed with
+.BR [DBG] .
+
+.TP
+.B --debuggaze
+Enable verbose gaze output on stderr.
+Covers every gaze sample received during calibration, validity checks,
+out-of-range detection, and sensor offset application.
+Output lines are prefixed with
+.BR [GAZE] .
+This flag is high frequency and should be redirected to a file
+when used together with
+.BR --debug .
 
 .SH CALIBRATION PROCESS
 The calibration process:
@@ -162,6 +188,24 @@ Run calibration:
 
 .nf
 $ eyecalib
+.fi
+
+Run with debug output:
+
+.nf
+$ eyecalib --debug
+.fi
+
+Run with gaze debug (high frequency):
+
+.nf
+$ eyecalib --debuggaze
+.fi
+
+All debug output to log file:
+
+.nf
+$ eyecalib --debug --debuggaze 2>eyecalib.log
 .fi
 
 Run eyemouse afterwards:

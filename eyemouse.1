@@ -19,16 +19,19 @@ The current implementation uses:
 3x3 mesh calibration
 
 .IP \(bu 4
-barycentric triangle interpolation
+Barycentric triangle interpolation
 
 .IP \(bu 4
-light gaze smoothing
+Light gaze smoothing
 
 .IP \(bu 4
-optional Quha gyroscopic fine correction
+Exclusive Quha device grab via EVIOCGRAB (always active)
 
 .IP \(bu 4
-automatic Quha device detection through
+Optional Quha gyroscopic fine correction
+
+.IP \(bu 4
+Automatic Quha device detection through
 .I /dev/input/by-id
 
 .IP \(bu 4
@@ -42,7 +45,68 @@ Show command line help.
 
 .TP
 .B --usegyro
-Enable optional Quha gyroscopic fine correction input.
+Enable Quha gyroscopic fine correction input.
+
+.TP
+.B --debug
+Enable verbose debug output on stderr.
+Covers initialisation, Quha grab, gyro events, and XWarpPointer calls.
+Output lines are prefixed with
+.BR [DBG] .
+
+.TP
+.B --debuggaze
+Enable verbose gaze output on stderr.
+Covers every gaze sample, triangle selection, barycentric coordinates,
+warp output, and per-frame cursor state.
+Output lines are prefixed with
+.BR [GAZE] .
+This flag is high frequency (~90 Hz) and should be redirected to a file
+when used together with
+.BR --debug .
+
+.TP
+.B --debuggyro
+Enable verbose gyro event output on stderr.
+Covers every REL_X and REL_Y event received from the Quha device,
+with raw value and accumulated gyro offset.
+Output lines are prefixed with
+.BR [GYRO] .
+This flag is high frequency and should be redirected to a file
+when used together with other debug flags.
+
+.TP
+.B --blink
+Enable blink click gesture recognition.
+A short blink triggers a left click, a medium blink triggers a right click,
+and a long blink toggles mouse button hold for drag operations.
+
+.TP
+.BI --blink-left " ms"
+Left click blink duration threshold in milliseconds (default: 80).
+Blinks shorter than this value are treated as noise and ignored.
+
+.TP
+.BI --blink-right " ms"
+Right click blink duration threshold in milliseconds (default: 300).
+Blinks between
+.B --blink-left
+and this value trigger a left click.
+Blinks between this value and
+.B --blink-hold
+trigger a right click.
+
+.TP
+.BI --blink-hold " ms"
+Hold toggle blink duration threshold in milliseconds (default: 600).
+Blinks at or above this duration toggle mouse button hold on/off.
+
+.TP
+.B --debugblink
+Enable verbose blink event output on stderr.
+Covers eye open/close events, blink duration, and action taken.
+Output lines are prefixed with
+.BR [BLINK] .
 
 .TP
 .BI config_file
@@ -85,13 +149,7 @@ into calibrated screen coordinates.
 This improves edge accuracy compared to simple affine
 transforms.
 
-.SH QUHA GYRO SUPPORT
-
-Optional Quha gyroscopic input can be enabled using:
-
-.EX
---usegyro
-.EE
+.SH QUHA SUPPORT
 
 The Quha device is automatically detected through:
 
@@ -99,8 +157,51 @@ The Quha device is automatically detected through:
 /dev/input/by-id
 .EE
 
-Gyro movement is applied as relative fine correction
-on top of the Tobii gaze position.
+The Quha device is grabbed exclusively using EVIOCGRAB whenever
+eyemouse starts, regardless of whether
+.B --usegyro
+is active.
+This prevents X11 from receiving raw Quha mouse events in parallel
+while eyemouse controls the cursor.
+
+If the exclusive grab fails, a warning is printed and eyemouse
+continues running, but X11 may still receive Quha events simultaneously.
+
+On SIGTERM, SIGINT, or SIGHUP the grab is released automatically
+before exit, so the Quha resumes normal X11 mouse operation immediately.
+
+.SS Gyro mode
+
+When
+.B --usegyro
+is active, Quha movement events are additionally read and applied
+as a relative fine correction on top of the Tobii gaze position.
+The offset decays exponentially (factor 0.92 per frame), so gaze
+remains the primary positioning input.
+
+.SH BLINK CLICK
+
+When
+.B --blink
+is active, eye blink duration determines the mouse action:
+
+.TS
+l l.
+Duration	Action
+_
+< --blink-left (80ms)	Noise, ignored
+80ms \(en 300ms	Left click
+300ms \(en 600ms	Right click
+\(>= 600ms	Hold toggle
+.TE
+
+Hold toggle alternately presses and releases the left mouse button,
+enabling drag operations without physical input.
+
+Requires
+.I libXtst
+at build time
+.RB ( \-lXtst ).
 
 .SH FILES
 
@@ -132,6 +233,48 @@ Custom calibration with gyro:
 
 .EX
 eyemouse --usegyro tobii.conf
+.EE
+
+Debug mode:
+
+.EX
+eyemouse --debug
+.EE
+
+Gaze debug (high frequency):
+
+.EX
+eyemouse --debuggaze
+.EE
+
+Enable blink click:
+
+.EX
+eyemouse --blink
+.EE
+
+Blink with custom thresholds:
+
+.EX
+eyemouse --blink --blink-left 100 --blink-right 350 --blink-hold 650
+.EE
+
+Blink and gyro combined:
+
+.EX
+eyemouse --blink --usegyro
+.EE
+
+Blink debug:
+
+.EX
+eyemouse --blink --debugblink
+.EE
+
+All debug output to log file:
+
+.EX
+eyemouse --debug --debuggaze --debuggyro --debugblink 2>eyemouse.log
 .EE
 
 .SH SEE ALSO

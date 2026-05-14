@@ -6,7 +6,7 @@ gcc -O2 -Wall -Wextra \
      -L/usr/lib/tobii \
      -Wl,-rpath,/usr/lib/tobii \
      -ltobii_stream_engine \
-     -lX11 -lm -lpthread
+     -lX11 -lXtst -lm -lpthread
 */
 
 #include <stdio.h>
@@ -20,13 +20,68 @@ gcc -O2 -Wall -Wextra \
 #include <pthread.h>
 
 #include <linux/input.h>
+#include <sys/ioctl.h>
+#include <signal.h>
+#include <time.h>
 
 #include <X11/Xlib.h>
+#include <X11/extensions/XTest.h>
 
 #include <tobii/tobii.h>
 #include <tobii/tobii_streams.h>
 
 #define DEADZONE 3
+
+static int debug = 0;
+static int debug_gaze = 0;
+static int debug_gyro = 0;
+
+#define DBG(...) \
+    do { if(debug) { fprintf(stderr, "[DBG] " __VA_ARGS__); fflush(stderr); } } while(0)
+
+#define DBGGAZE(...) \
+    do { if(debug_gaze) { fprintf(stderr, "[GAZE] " __VA_ARGS__); fflush(stderr); } } while(0)
+
+#define DBGGYRO(...) \
+    do { if(debug_gyro) { fprintf(stderr, "[GYRO] " __VA_ARGS__); fflush(stderr); } } while(0)
+
+#define DBGBLINK(...) \
+    do { if(debug_blink) { fprintf(stderr, "[BLINK] " __VA_ARGS__); fflush(stderr); } } while(0)
+
+/*
+    blink click configuration
+*/
+
+static int use_blink = 0;
+static int debug_blink = 0;
+
+/*
+    thresholds in milliseconds
+    left click  : blink_ms_left  <= duration < blink_ms_right
+    right click : blink_ms_right <= duration < blink_ms_hold
+    hold toggle : blink_ms_hold  <= duration
+*/
+
+static int blink_ms_left  = 80;
+static int blink_ms_right = 300;
+static int blink_ms_hold  = 600;
+
+/*
+    blink state
+*/
+
+typedef enum
+{
+    BLINK_IDLE,
+    BLINK_CLOSED
+
+} blink_state_t;
+
+static blink_state_t blink_state = BLINK_IDLE;
+static struct timespec blink_t0;
+static int blink_hold_active = 0;
+
+static Display* blink_display = NULL;
 
 typedef struct
 {
@@ -65,21 +120,61 @@ float gyro_dy=0.0f;
 int screen_w=0;
 int screen_h=0;
 
+/*
+    global Quha fd for signal handler cleanup
+*/
+
+static volatile int quha_fd = -1;
+
+static void signal_handler(int sig)
+{
+    (void)sig;
+
+    if(quha_fd >= 0)
+    {
+        /*
+            release exclusive grab so X11
+            receives Quha events again
+        */
+
+        ioctl(quha_fd,EVIOCGRAB,0);
+        close(quha_fd);
+        quha_fd = -1;
+
+        printf(
+            "\nQuha released\n");
+    }
+
+    _exit(0);
+}
+
 
 void print_help(const char* prog)
 {
     printf(
         "Usage:\n"
-        "  %s [config_file]\n"
+        "  %s [options] [config_file]\n"
         "\n"
         "Options:\n"
-        "  -h --help     show help\n"
-        "  --usegyro     use Quha gyro\n"
+        "  -h --help                show help\n"
+        "  --usegyro                use Quha gyro\n"
+        "  --blink                  enable blink click\n"
+        "  --blink-left  <ms>       left click threshold  (default: 80)\n"
+        "  --blink-right <ms>       right click threshold (default: 300)\n"
+        "  --blink-hold  <ms>       hold toggle threshold (default: 600)\n"
+        "  --debug                  verbose debug output on stderr\n"
+        "  --debuggaze              verbose gaze output on stderr\n"
+        "  --debuggyro              verbose gyro event output on stderr\n"
+        "  --debugblink             verbose blink event output on stderr\n"
         "\n"
         "Examples:\n"
         "  %s\n"
-        "  %s ~/.local/tobii_4c/calx11.conf\n"
-        "  %s --usegyro\n",
+        "  %s --blink\n"
+        "  %s --blink --blink-left 100 --blink-right 350 --blink-hold 650\n"
+        "  %s --usegyro --blink\n"
+        "  %s --debug --debugblink\n",
+        prog,
+        prog,
         prog,
         prog,
         prog,
@@ -101,6 +196,8 @@ int load_config(const char* path)
         "Loading calibration: %s\n",
         path);
 
+    DBG("load_config: opened %s\n", path);
+
     char line[256];
 
     int idx = 0;
@@ -112,7 +209,10 @@ int load_config(const char* path)
         */
 
         if(line[0] == '#')
+        {
+            DBG("load_config: skip comment: %s", line);
             continue;
+        }
 
         /*
             skip empty lines
@@ -156,6 +256,10 @@ int load_config(const char* path)
                     tx,
                     ty);
 
+                DBG("load_config: CAL[%d] grid[%d][%d] "
+                    "raw=(%.6f,%.6f) target=(%.6f,%.6f)\n",
+                    idx, y, x, rx, ry, tx, ty);
+
                 idx++;
             }
         }
@@ -164,6 +268,8 @@ int load_config(const char* path)
             printf(
                 "Ignoring line: %s",
                 line);
+
+            DBG("load_config: unparseable line: %s", line);
         }
     }
 
@@ -172,6 +278,8 @@ int load_config(const char* path)
     printf(
         "Loaded %d calibration points\n",
         idx);
+
+    DBG("load_config: total points loaded: %d\n", idx);
 
     if(idx != 9)
     {
@@ -300,6 +408,7 @@ void warp(
             t[i].rx[2],t[i].ry[2],
             &u,&v,&w))
         {
+            DBGGAZE("warp: tri[%d] degenerate, skip\n", i);
             continue;
         }
 
@@ -320,9 +429,18 @@ void warp(
             *ox = clampf(*ox,0.0f,1.0f);
             *oy = clampf(*oy,0.0f,1.0f);
 
+            DBGGAZE("warp: tri[%d] hit  "
+                "raw=(%.4f,%.4f) "
+                "uvw=(%.4f,%.4f,%.4f) "
+                "out=(%.4f,%.4f)\n",
+                i, raw_x, raw_y, u, v, w, *ox, *oy);
+
             return;
         }
     }
+
+    DBGGAZE("warp: no triangle hit for raw=(%.4f,%.4f), using clamped passthrough\n",
+        raw_x, raw_y);
 
     *ox = clampf(raw_x,0.0f,1.0f);
     *oy = clampf(raw_y,0.0f,1.0f);
@@ -330,6 +448,8 @@ void warp(
 
 int open_quha_device(void)
 {
+    DBG("open_quha_device: scanning /dev/input/by-id\n");
+
     DIR* dir =
         opendir("/dev/input/by-id");
 
@@ -343,11 +463,15 @@ int open_quha_device(void)
 
     while((de = readdir(dir)))
     {
+        DBG("open_quha_device: entry %s\n", de->d_name);
+
         if(!strstr(de->d_name,"Quha"))
             continue;
 
         if(!strstr(de->d_name,"event"))
             continue;
+
+        DBG("open_quha_device: Quha event entry found: %s\n", de->d_name);
 
         char linkpath[PATH_MAX];
 
@@ -366,9 +490,14 @@ int open_quha_device(void)
                 sizeof(target)-1);
 
         if(len <= 0)
+        {
+            DBG("open_quha_device: readlink failed for %s\n", linkpath);
             continue;
+        }
 
         target[len] = 0;
+
+        DBG("open_quha_device: symlink target: %s\n", target);
 
         char final[PATH_MAX];
 
@@ -382,13 +511,45 @@ int open_quha_device(void)
             "Using Quha device: %s\n",
             final);
 
+        DBG("open_quha_device: opening %s\n", final);
+
         int fd =
             open(final,O_RDONLY);
 
         if(fd >= 0)
         {
+            DBG("open_quha_device: fd=%d opened\n", fd);
+
+            /*
+                grab device exclusively so X11
+                never receives Quha mouse events
+                while eyemouse is running
+            */
+
+            if(ioctl(fd,EVIOCGRAB,1) < 0)
+            {
+                perror("EVIOCGRAB");
+                fprintf(
+                    stderr,
+                    "Warning: could not grab Quha exclusively\n"
+                    "X11 may still receive mouse events\n");
+
+                DBG("open_quha_device: EVIOCGRAB failed, continuing without exclusive grab\n");
+            }
+            else
+            {
+                printf(
+                    "Quha grabbed exclusively\n");
+
+                DBG("open_quha_device: EVIOCGRAB success\n");
+            }
+
             closedir(dir);
             return fd;
+        }
+        else
+        {
+            DBG("open_quha_device: open(%s) failed: %m\n", final);
         }
     }
 
@@ -398,6 +559,8 @@ int open_quha_device(void)
         stderr,
         "No Quha device found\n");
 
+    DBG("open_quha_device: no Quha device found in /dev/input/by-id\n");
+
     return -1;
 }
 
@@ -405,8 +568,9 @@ void* gyro_thread(void* arg)
 {
     (void)arg;
 
-    int fd =
-        open_quha_device();
+    int fd = quha_fd;
+
+    DBG("gyro_thread: started fd=%d\n", fd);
 
     if(fd < 0)
         return NULL;
@@ -419,15 +583,135 @@ void* gyro_thread(void* arg)
             continue;
 
         if(ev.code == REL_X)
+        {
             gyro_dx += ev.value * 2.0f;
 
+            DBGGYRO("REL_X value=%d  gyro_dx=%.2f\n",
+                ev.value, gyro_dx);
+        }
+
         if(ev.code == REL_Y)
+        {
             gyro_dy += ev.value * 2.0f;
+
+            DBGGYRO("REL_Y value=%d  gyro_dy=%.2f\n",
+                ev.value, gyro_dy);
+        }
     }
 
-    close(fd);
+    DBG("gyro_thread: read loop ended\n");
 
     return NULL;
+}
+
+static long ms_since(const struct timespec* t0)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    return (now.tv_sec  - t0->tv_sec)  * 1000L +
+           (now.tv_nsec - t0->tv_nsec) / 1000000L;
+}
+
+static void blink_send_click(int button)
+{
+    if(!blink_display)
+        return;
+
+    XTestFakeButtonEvent(blink_display, button, True,  CurrentTime);
+    XTestFakeButtonEvent(blink_display, button, False, CurrentTime);
+    XFlush(blink_display);
+}
+
+static void blink_send_hold(int button, int press)
+{
+    if(!blink_display)
+        return;
+
+    XTestFakeButtonEvent(blink_display, button, press, CurrentTime);
+    XFlush(blink_display);
+}
+
+static void blink_process(int valid_now)
+{
+    if(!use_blink)
+        return;
+
+    if(blink_state == BLINK_IDLE)
+    {
+        if(!valid_now)
+        {
+            /*
+                eye closed: record start time
+            */
+
+            clock_gettime(CLOCK_MONOTONIC, &blink_t0);
+            blink_state = BLINK_CLOSED;
+
+            DBGBLINK("eye closed\n");
+        }
+
+        return;
+    }
+
+    /*
+        BLINK_CLOSED: eye was closed, check if open again
+    */
+
+    if(valid_now)
+    {
+        long ms = ms_since(&blink_t0);
+
+        DBGBLINK("eye open after %ldms\n", ms);
+
+        if(ms < blink_ms_left)
+        {
+            /*
+                too short: noise, ignore
+            */
+
+            DBGBLINK("ignored (noise < %dms)\n", blink_ms_left);
+        }
+        else if(ms < blink_ms_right)
+        {
+            /*
+                left click
+            */
+
+            DBGBLINK("left click (%ldms)\n", ms);
+            printf("\nBlink: left click\n");
+            blink_send_click(1);
+        }
+        else if(ms < blink_ms_hold)
+        {
+            /*
+                right click
+            */
+
+            DBGBLINK("right click (%ldms)\n", ms);
+            printf("\nBlink: right click\n");
+            blink_send_click(3);
+        }
+        else
+        {
+            /*
+                hold toggle
+            */
+
+            blink_hold_active = !blink_hold_active;
+
+            DBGBLINK("hold toggle -> %s (%ldms)\n",
+                blink_hold_active ? "press" : "release", ms);
+
+            printf(
+                "\nBlink: hold %s\n",
+                blink_hold_active ? "press" : "release");
+
+            blink_send_hold(1, blink_hold_active);
+        }
+
+        blink_state = BLINK_IDLE;
+    }
 }
 
 void url_cb(
@@ -447,14 +731,27 @@ void gaze_cb(
 {
     (void)user_data;
 
-    if(g->validity != TOBII_VALIDITY_VALID)
+    int valid_now = (g->validity == TOBII_VALIDITY_VALID);
+
+    blink_process(valid_now);
+
+    if(!valid_now)
+    {
+        DBGGAZE("invalid gaze sample, skipping\n");
         return;
+    }
+
+    DBGGAZE("raw=(%.4f,%.4f)\n",
+        g->position_xy[0],
+        g->position_xy[1]);
 
     warp(
         g->position_xy[0],
         g->position_xy[1],
         &gx,
         &gy);
+
+    DBGGAZE("warped=(%.4f,%.4f)\n", gx, gy);
 }
 
 void get_config_path(
@@ -495,6 +792,54 @@ int main(int argc,char** argv)
             continue;
         }
 
+        if(!strcmp(argv[i],"--debug"))
+        {
+            debug = 1;
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--debuggaze"))
+        {
+            debug_gaze = 1;
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--debuggyro"))
+        {
+            debug_gyro = 1;
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--blink"))
+        {
+            use_blink = 1;
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--debugblink"))
+        {
+            debug_blink = 1;
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--blink-left") && i+1<argc)
+        {
+            blink_ms_left = atoi(argv[++i]);
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--blink-right") && i+1<argc)
+        {
+            blink_ms_right = atoi(argv[++i]);
+            continue;
+        }
+
+        if(!strcmp(argv[i],"--blink-hold") && i+1<argc)
+        {
+            blink_ms_hold = atoi(argv[++i]);
+            continue;
+        }
+
         /*
             config path
         */
@@ -505,6 +850,16 @@ int main(int argc,char** argv)
             "%s",
             argv[i]);
     }
+
+    DBG("eyemouse starting\n");
+    DBG("config path: %s\n", cfg);
+    DBG("use_gyro: %d\n", use_gyro);
+    DBG("use_blink: %d\n", use_blink);
+    DBG("debug_gaze: %d\n", debug_gaze);
+    DBG("debug_gyro: %d\n", debug_gyro);
+    DBG("debug_blink: %d\n", debug_blink);
+    DBG("blink thresholds: left=%dms right=%dms hold=%dms\n",
+        blink_ms_left, blink_ms_right, blink_ms_hold);
 
     if(!load_config(cfg))
     {
@@ -517,10 +872,31 @@ int main(int argc,char** argv)
 
     if(!d)
     {
-        printf(
+        fprintf(stderr,
             "No X11 display\n");
 
         return 1;
+    }
+
+    DBG("X11 display opened\n");
+
+    blink_display = d;
+
+    if(use_blink)
+    {
+        printf(
+            "Blink click enabled  "
+            "left<%dms  right<%dms  hold>=%dms\n",
+            blink_ms_right,
+            blink_ms_hold,
+            blink_ms_hold);
+
+        DBG("blink: left=%dms right=%dms hold=%dms\n",
+            blink_ms_left, blink_ms_right, blink_ms_hold);
+    }
+    else
+    {
+        printf("Blink click disabled\n");
     }
 
     int screen =
@@ -537,8 +913,12 @@ int main(int argc,char** argv)
         screen_w,
         screen_h);
 
+    DBG("screen: %dx%d  screen_index=%d\n", screen_w, screen_h, screen);
+
     Window root =
         RootWindow(d,screen);
+
+    DBG("root window: 0x%lx\n", root);
 
     cx = screen_w/2;
     cy = screen_h/2;
@@ -548,10 +928,14 @@ int main(int argc,char** argv)
 
     char url[256]={0};
 
-    tobii_api_create(
+    tobii_error_t err;
+
+    err = tobii_api_create(
         &api,
         NULL,
         NULL);
+
+    DBG("tobii_api_create: %d\n", err);
 
     tobii_enumerate_local_device_urls(
         api,
@@ -560,7 +944,7 @@ int main(int argc,char** argv)
 
     if(url[0] == 0)
     {
-        printf("No Tobii device found\n");
+        fprintf(stderr, "No Tobii device found\n");
         return 1;
     }
 
@@ -568,27 +952,54 @@ int main(int argc,char** argv)
         "Device: %s\n",
         url);
 
-    tobii_device_create(
+    DBG("tobii device url: %s\n", url);
+
+    err = tobii_device_create(
         api,
         url,
         &dev);
 
-    tobii_gaze_point_subscribe(
+    DBG("tobii_device_create: %d\n", err);
+
+    err = tobii_gaze_point_subscribe(
         dev,
         gaze_cb,
         NULL);
 
+    DBG("tobii_gaze_point_subscribe: %d\n", err);
+
+    /*
+        always grab Quha to prevent X11 from
+        receiving raw mouse events while eyemouse
+        controls the cursor
+    */
+
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT,  signal_handler);
+    signal(SIGHUP,  signal_handler);
+
+    quha_fd = open_quha_device();
+
     if(use_gyro)
     {
-        pthread_t gt;
+        if(quha_fd >= 0)
+        {
+            pthread_t gt;
 
-        pthread_create(
-            &gt,
-            NULL,
-            gyro_thread,
-            NULL);
-        printf(
-            "Gyro enabled\n");
+            pthread_create(
+                &gt,
+                NULL,
+                gyro_thread,
+                NULL);
+
+            printf(
+                "Gyro enabled\n");
+        }
+        else
+        {
+            printf(
+                "Gyro enabled but no Quha device found\n");
+        }
     }
     else
     {
@@ -598,6 +1009,8 @@ int main(int argc,char** argv)
 
     int lx=screen_w/2;
     int ly=screen_h/2;
+
+    unsigned long frame = 0;
 
     while(1)
     {
@@ -641,12 +1054,32 @@ int main(int argc,char** argv)
                 0,
                 screen_h-1);
 
+        if(debug_gaze && (frame % 25 == 0))
+        {
+            fprintf(stderr,
+                "[GAZE] frame=%lu "
+                "gaze=(%.4f,%.4f) "
+                "smooth=(%.4f,%.4f) "
+                "gyro=(%.2f,%.2f) "
+                "cursor=(%d,%d)\n",
+                frame,
+                gx, gy,
+                sx, sy,
+                gyro_dx, gyro_dy,
+                x, y);
+            fflush(stderr);
+        }
+
+        frame++;
+
         if(abs(x-lx)<DEADZONE &&
            abs(y-ly)<DEADZONE)
         {
             usleep(4000);
             continue;
         }
+
+        DBG("XWarpPointer: (%d,%d) -> (%d,%d)\n", lx, ly, x, y);
 
         XWarpPointer(
             d,

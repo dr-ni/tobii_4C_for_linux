@@ -148,6 +148,25 @@ Run:
 eyecalib
 ```
 
+Options:
+
+| Option          | Description                                          |
+|-----------------|------------------------------------------------------|
+| `-h --help`     | Show command line help                               |
+| `--debug`       | Verbose debug output on stderr                       |
+| `--debuggaze`   | Verbose gaze output on stderr (high frequency)       |
+
+```bash
+# debug calibration
+eyecalib --debug
+
+# gaze debug
+eyecalib --debuggaze
+
+# all to log file
+eyecalib --debug --debuggaze 2>eyecalib.log
+```
+
 The calibration process:
 
 ```text
@@ -232,10 +251,18 @@ eyemouse [options] [config_file]
 
 ### Options
 
-| Option      | Description                              |
-|-------------|------------------------------------------|
-| `-h --help` | Show command line help                   |
-| `--usegyro` | Enable Quha gyroscopic fine correction   |
+| Option              | Description                                          |
+|---------------------|------------------------------------------------------|
+| `-h --help`         | Show command line help                               |
+| `--usegyro`         | Enable Quha gyroscopic fine correction               |
+| `--blink`           | Enable blink click                                   |
+| `--blink-left <ms>` | Left click threshold in ms (default: 80)             |
+| `--blink-right <ms>`| Right click threshold in ms (default: 300)           |
+| `--blink-hold <ms>` | Hold toggle threshold in ms (default: 600)           |
+| `--debug`           | Verbose debug output on stderr                       |
+| `--debuggaze`       | Verbose gaze output on stderr (high frequency)       |
+| `--debuggyro`       | Verbose gyro event output on stderr (high frequency) |
+| `--debugblink`      | Verbose blink event output on stderr                 |
 
 ### Examples
 
@@ -251,7 +278,60 @@ eyemouse --usegyro
 
 # gyro with custom calibration
 eyemouse --usegyro tobii.conf
+
+# blink click enabled
+eyemouse --blink
+
+# blink with custom thresholds
+eyemouse --blink --blink-left 100 --blink-right 350 --blink-hold 650
+
+# blink + gyro
+eyemouse --blink --usegyro
+
+# debug mode
+eyemouse --debug
+
+# debug mode with gyro
+eyemouse --debug --usegyro
+
+# gaze debug (high frequency)
+eyemouse --debuggaze
+
+# gyro event debug (high frequency)
+eyemouse --debuggyro
+
+# blink debug
+eyemouse --blink --debugblink
+
+# all debug output to log file
+eyemouse --debug --debuggaze --debuggyro --debugblink 2>eyemouse.log
 ```
+
+---
+
+# Blink Click
+
+`eyemouse --blink` enables eye blink gesture recognition for mouse clicks.
+
+Blink duration determines the action:
+
+| Duration                        | Action          |
+|---------------------------------|-----------------|
+| < `--blink-left` (default 80ms) | Noise, ignored  |
+| 80ms – 300ms                    | Left click      |
+| 300ms – 600ms                   | Right click     |
+| ≥ 600ms                         | Hold toggle     |
+
+Hold toggle alternately presses and releases the left mouse button,
+enabling drag operations without physical input.
+
+All thresholds are configurable:
+
+```bash
+eyemouse --blink --blink-left 100 --blink-right 350 --blink-hold 650
+```
+
+Requires `libXtst` (`-lXtst`) at build time.
 
 ### Example output
 
@@ -318,10 +398,7 @@ This improves:
 
 ---
 
-# Optional Quha Gyro Support
-
-`eyemouse --usegyro` enables Quha gyroscopic input for fine
-cursor correction on top of the Tobii gaze position.
+# Quha Support
 
 The Quha device is automatically detected via:
 
@@ -329,9 +406,50 @@ The Quha device is automatically detected via:
 /dev/input/by-id/
 ```
 
-Gyro movement is applied as a relative offset that decays
-exponentially (factor 0.92 per frame), so gaze remains the
+The Quha is grabbed exclusively using `EVIOCGRAB` whenever `eyemouse`
+starts, regardless of whether `--usegyro` is used. This prevents X11
+from receiving raw Quha mouse events in parallel while eyemouse controls
+the cursor.
+
+If the exclusive grab fails, a warning is printed and eyemouse
+continues — but X11 may still receive Quha events simultaneously.
+
+On `SIGTERM`, `SIGINT`, or `SIGHUP` the grab is released automatically
+before exit, so the Quha resumes normal X11 mouse operation immediately.
+
+## Gyro mode
+
+`eyemouse --usegyro` additionally reads Quha movement events and applies
+them as a relative offset on top of the Tobii gaze position. The offset
+decays exponentially (factor 0.92 per frame), so gaze remains the
 primary positioning input.
+
+---
+
+# Debug Output
+
+`eyemouse` supports two independent debug flags:
+
+| Flag            | Prefix    | Content                                              |
+|-----------------|-----------|------------------------------------------------------|
+| `--debug`       | `[DBG]`   | Init, Quha grab, XWarpPointer calls                  |
+| `--debuggaze`   | `[GAZE]`  | Every gaze sample, warp/triangle selection, uvw, frame stats |
+| `--debuggyro`   | `[GYRO]`  | Every REL_X/REL_Y gyro event with value and accumulated offset |
+| `--debugblink`  | `[BLINK]` | Eye open/close events, duration, action taken        |
+
+Both flags write to stderr and can be combined:
+
+```bash
+eyemouse --debug 2>debug.log
+eyemouse --debuggaze 2>gaze.log
+eyemouse --debuggyro 2>gyro.log
+eyemouse --debug --debuggaze --debuggyro 2>full.log
+eyemouse --debuggaze 2>&1 | grep GAZE
+eyemouse --debuggyro 2>&1 | grep GYRO
+```
+
+`--debuggaze` and `--debuggyro` are high frequency and should be
+redirected to a file when used together with `--debug`.
 
 ---
 
@@ -403,6 +521,8 @@ Planned future improvements:
 | `/etc/ld.so.conf.d/tobii.conf` | Library path config |
 | `/etc/systemd/system/tobii_engine.service` | Tobii engine service |
 | `/etc/systemd/system/tobiiusb.service` | Tobii USB service |
+| `tobii.conf` | Library path source file (copied by install.sh) |
+| `examples/` | Usage examples |
 
 ---
 
